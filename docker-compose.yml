@@ -23,6 +23,8 @@ services:
         condition: service_started
       flight-agent:
         condition: service_started
+      hotel-agent:
+        condition: service_started
       otel-collector:
         condition: service_started
     networks:
@@ -72,6 +74,37 @@ services:
       MOCK_MODE: ${MOCK_MODE:-true}
     ports:
       - "9001:9001"
+    networks:
+      - agent-net
+
+  hotel-agent:
+    build:
+      context: ./agents/hotel-langgraph
+    environment:
+      SERVICE_NAME: hotel-agent
+      PORT: 8003
+      PUBLIC_URL: http://hotel-agent:8003
+      MCP_HOTEL_URL: http://mcp-hotel:9002/mcp
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAMESPACE: a2a-poc
+      AGENT_REQUEST_TIMEOUT_SECONDS: ${AGENT_REQUEST_TIMEOUT_SECONDS:-30}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8003:8003"
+    depends_on:
+      mcp-hotel:
+        condition: service_started
+    networks:
+      - agent-net
+
+  mcp-hotel:
+    build:
+      context: ./mcp/hotel-search
+    environment:
+      PORT: 9002
+      MOCK_MODE: ${MOCK_MODE:-true}
+    ports:
+      - "9002:9002"
     networks:
       - agent-net
 

@@ -17,8 +17,10 @@ Serviços expostos:
 
 - Planner: http://localhost:8001
 - Flight Agent: http://localhost:8002
+- Hotel Agent: http://localhost:8003
 - Mock Specialist Agent: http://localhost:8099
 - MCP Flight Search: http://localhost:9001
+- MCP Hotel Search: http://localhost:9002
 - Agent Registry: http://localhost:8080
 - Jaeger UI: http://localhost:16686
 
@@ -31,22 +33,32 @@ pip install -e .
 AGENT_REGISTRY_URL=http://localhost:8080 uvicorn app.main:app --reload --port 8001
 ```
 
+Para o hotel-agent (TypeScript), fora do Docker:
+
+```bash
+cd agents/hotel-langgraph
+npm install
+MCP_HOTEL_URL=http://localhost:9002/mcp PORT=8003 npm start
+```
+
 ## Testes
 
-Cada agente tem sua própria suíte (`agents/<agente>/tests`), pois cada um
-é deployável e testável independentemente (RNF-06):
+Cada agente tem sua própria suíte (`agents/<agente>/tests` em Python, ou
+`agents/hotel-langgraph/test` em TypeScript), pois cada um é deployável e
+testável independentemente (RNF-06):
 
 ```bash
 cd agents/planner-adk && pip install -e . pytest && pytest -q
 cd agents/mock-specialist && pip install -e . pytest && pytest -q
 cd agents/flight-openai && pip install -e . pytest && pytest -q
+cd agents/hotel-langgraph && npm install && npm test
 ```
 
 Testes de contrato e E2E (raiz do repo, exigem serviços rodando):
 
 ```bash
 pip install -r tests/requirements.txt
-AGENT_URLS="http://localhost:8001,http://localhost:8099,http://localhost:8002" pytest tests/contract -q
+AGENT_URLS="http://localhost:8001,http://localhost:8099,http://localhost:8002,http://localhost:8003" pytest tests/contract -q
 PLANNER_URL=http://localhost:8001 pytest tests/e2e -q
 ```
 

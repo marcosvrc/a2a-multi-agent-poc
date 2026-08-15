@@ -1,0 +1,14 @@
+{
+  "status": "SUCCESS",
+  "options": [
+    {
+      "id": "HT-0001",
+      "name": "Pousada Mar Azul",
+      "price_per_night": 280,
+      "currency": "BRL",
+      "rating": 4.2,
+      "location": "Praia"
+    }
+  ],
+  "notes": ""
+}

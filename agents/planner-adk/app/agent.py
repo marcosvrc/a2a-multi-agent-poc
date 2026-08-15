@@ -5,16 +5,17 @@ RECEIVED -> DISCOVERING_AGENTS -> DELEGATING -> WAITING_SPECIALISTS ->
 CALCULATING_BUDGET -> OPTIONAL_ENRICHMENT -> CONSOLIDATING ->
 COMPLETED | PARTIAL | FAILED
 
-Fase 2 scope (PROJECT_SPEC.md §43): the real Flight Agent now exists and
-is called for real over A2A; Hotel/Activity/Budget/Enrichment
-(§5.3-§5.6) still don't, so this module keeps applying the documented
-degradation rules (§11) for those:
+Fase 3 scope (PROJECT_SPEC.md §43): Flight and Hotel are now real
+specialists called over A2A (flight-agent in Python/OpenAI Agents SDK,
+hotel-agent in TypeScript/LangGraph — proving A2A interoperability across
+languages). Activity/Budget/Enrichment (§5.4-§5.6) still don't exist, so
+this module keeps applying the documented degradation rules (§11):
 
-  hotel/activities -> status UNAVAILABLE, overall response PARTIAL
+  activities -> status UNAVAILABLE, overall response PARTIAL
   budget -> status UNKNOWN (per §11 "Budget indisponível")
   enrichment -> status SKIPPED (AWS agent optional/off by default)
 
-Real specialists are wired in incrementally per §43 Fase 3-5, without
+Real specialists are wired in incrementally per §43 Fase 4-5, without
 changing this module's public contract.
 """
 from __future__ import annotations
@@ -120,21 +121,23 @@ async def run_foundation_check() -> dict[str, Any]:
     }
 
 
-def _parse_flight_result(task: dict[str, Any] | None) -> FlightResult:
-    """Parses the Task returned by flight-agent's `search_flights` skill
-    into a FlightResult. Never fabricates flight data (§31): any parsing
-    failure or missing task degrades to UNAVAILABLE, never a guess.
+def _parse_specialist_result(agent_id: str, task: dict[str, Any] | None, model_cls: type) -> Any:
+    """Parses the Task returned by a specialist's A2A skill into the given
+    result model. Never fabricates data (§31): any parsing failure or
+    missing task degrades to UNAVAILABLE, never a guess. Shared by
+    flight-agent and hotel-agent (Python and TypeScript respectively —
+    the wire format is identical, per the A2A adapter contract).
     """
     if task is None:
-        return FlightResult(status="UNAVAILABLE", notes="flight-agent unreachable")
+        return model_cls(status="UNAVAILABLE", notes=f"{agent_id} unreachable")
     try:
         message = task["status"]["message"]
         text = next(p["text"] for p in message["parts"] if p.get("kind") == "text")
         raw = json.loads(text)
-        return FlightResult.model_validate(raw)
+        return model_cls.model_validate(raw)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("failed to parse flight-agent response: %s", exc)
-        return FlightResult(status="UNAVAILABLE", notes=f"invalid flight-agent response: {exc}")
+        logger.warning("failed to parse %s response: %s", agent_id, exc)
+        return model_cls(status="UNAVAILABLE", notes=f"invalid {agent_id} response: {exc}")
 
 
 async def handle_travel_request(payload: TravelRequest) -> TravelResponse:
@@ -156,10 +159,10 @@ async def handle_travel_request(payload: TravelRequest) -> TravelResponse:
         delegation_results[agent["id"]] = await _delegate_to_agent(agent, delegation_text, request_id)
 
     _log_state(request_id, "WAITING_SPECIALISTS")
-    flight = _parse_flight_result(delegation_results.get("flight-agent"))
-    # Hotel/Activity specialists are not implemented yet (Fase 3-4).
+    flight = _parse_specialist_result("flight-agent", delegation_results.get("flight-agent"), FlightResult)
+    hotel = _parse_specialist_result("hotel-agent", delegation_results.get("hotel-agent"), HotelResult)
+    # Activity specialist is not implemented yet (Fase 4).
     # Per §11, an unavailable specialist yields a PARTIAL overall response.
-    hotel = HotelResult(status="UNAVAILABLE", notes="hotel-agent not implemented yet (planned for Fase 3)")
     activities = ActivityResult(status="UNAVAILABLE", notes="activity-agent not implemented yet (planned for Fase 4)")
 
     _log_state(request_id, "CALCULATING_BUDGET")

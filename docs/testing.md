@@ -4,9 +4,12 @@ Quatro níveis, conforme PROJECT_SPEC.md §34.
 
 ## Unit tests
 
-Por agente, em `agents/<agente>/tests/`. Cobrem parsing, Agent Card,
-JSON-RPC (sucesso e erro), e no Planner as regras de degradação e o
-roteamento de estados.
+Por agente, em `agents/<agente>/tests/` (Python, `pytest`) ou
+`agents/hotel-langgraph/test/` (TypeScript, `node --test`). Cobrem
+parsing, Agent Card, JSON-RPC (sucesso e erro), e no Planner as regras de
+degradação e o roteamento de estados. No Hotel Agent, cobrem também cada
+nó do grafo LangGraph isoladamente (`parse`, `filter`, `rank`) e o fluxo
+completo (`graph.test.ts`), incluindo o caso de MCP indisponível.
 
 ## Contract tests
 
@@ -15,7 +18,9 @@ roteamento de estados.
 - `test_schemas.py` — offline, valida `contracts/examples/*.json` contra
   `contracts/schemas/*.json`.
 - `test_agent_cards.py` — requer serviços rodando (`AGENT_URLS`), valida
-  que cada Agent Card tem os campos obrigatórios do §8.
+  que cada Agent Card tem os campos obrigatórios do §8 (inclui o
+  hotel-agent, provando que o Agent Card em TypeScript é indistinguível
+  do Python do ponto de vista do protocolo).
 
 ## Integration / E2E
 
@@ -26,6 +31,10 @@ roteamento de estados.
   `flight-agent` real responde via A2A e que a `TravelResponse` final
   passa no JSON Schema completo, com `flight.status = SUCCESS` e
   `recommended_option_id` preenchido.
+- `tests/e2e/test_fase3_hotel.py` — requer `PLANNER_URL`, valida que o
+  `hotel-agent` (TypeScript) real responde via A2A e que a
+  `TravelResponse` final passa no JSON Schema completo, com
+  `flight.status = SUCCESS` e `hotel.status = SUCCESS` simultaneamente.
 
 ## Resiliência
 

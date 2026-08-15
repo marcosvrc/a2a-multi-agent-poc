@@ -3,6 +3,12 @@
 ## A2A (implementado nesta milestone via adapter próprio)
 
 Ver ADR-008 para a justificativa de não usar o `a2a-sdk` oficial ainda.
+Implementado duas vezes, independentemente: uma vez em Python
+(`agents/*/app/a2a/`, usada por planner-agent, flight-agent e
+mock-specialist-agent) e uma vez em TypeScript
+(`agents/hotel-langgraph/src/a2a/`, usada pelo hotel-agent) — mesmo
+contrato de wire, sem código compartilhado entre as duas linguagens (ver
+ADR-010).
 
 - Agent Card: `GET /.well-known/agent-card.json`
 - JSON-RPC 2.0: `POST /a2a`
@@ -19,10 +25,14 @@ Erros seguem o envelope JSON-RPC 2.0 padrão (`{"error": {"code", "message"}}`).
 ## MCP
 
 Implementado para o Flight Agent (`mcp/flight-search`, Streamable HTTP,
-`POST /mcp`, tool `search_flights`), usando o SDK oficial `mcp` (Python).
-`MOCK_MODE=true` por padrão (§23) — dados determinísticos, sem API paga.
-Hotel/Places/Weather/Currency/Calculator ainda não implementados
-(Fases 3-5).
+`POST /mcp`, tool `search_flights`, SDK oficial `mcp` em Python) e para o
+Hotel Agent (`mcp/hotel-search`, Streamable HTTP, `POST /mcp`, tool
+`search_hotels`, também SDK oficial `mcp` em Python — o servidor MCP em si
+não precisa ser reimplementado por linguagem, apenas o *cliente* MCP
+dentro do hotel-agent, que é TypeScript via `@modelcontextprotocol/sdk`,
+ver `agents/hotel-langgraph/src/mcpClient.ts`). `MOCK_MODE=true` por
+padrão (§23) — dados determinísticos, sem API paga. Places/Weather/
+Currency/Calculator ainda não implementados (Fases 4-5).
 
 ## HTTP / Health
 
