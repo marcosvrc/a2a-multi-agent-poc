@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a2a-multi-agent-poc/contracts/flight-result.schema.json",
+  "title": "FlightResult",
+  "type": "object",
+  "required": ["status", "options"],
+  "properties": {
+    "status": { "type": "string", "enum": ["SUCCESS", "PARTIAL", "UNAVAILABLE", "UNKNOWN"] },
+    "recommended_option_id": { "type": ["string", "null"] },
+    "options": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["id", "origin", "destination", "price", "currency"],
+        "properties": {
+          "id": { "type": "string" },
+          "origin": { "type": "string" },
+          "destination": { "type": "string" },
+          "price": { "type": "number" },
+          "currency": { "type": "string" },
+          "provider": { "type": "string" }
+        }
+      }
+    },
+    "notes": { "type": "string" }
+  },
+  "additionalProperties": false
+}

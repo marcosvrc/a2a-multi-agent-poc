@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a2a-multi-agent-poc/contracts/travel-request.schema.json",
+  "title": "TravelRequest",
+  "type": "object",
+  "required": ["request_id", "origin", "destination", "start_date", "end_date", "travelers", "budget", "currency"],
+  "properties": {
+    "request_id": { "type": "string", "format": "uuid" },
+    "origin": { "type": "string", "minLength": 1 },
+    "destination": { "type": "string", "minLength": 1 },
+    "start_date": { "type": "string", "format": "date" },
+    "end_date": { "type": "string", "format": "date" },
+    "travelers": { "type": "integer", "minimum": 1 },
+    "budget": { "type": "number", "minimum": 0 },
+    "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
+    "preferences": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}

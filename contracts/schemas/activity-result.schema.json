@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a2a-multi-agent-poc/contracts/activity-result.schema.json",
+  "title": "ActivityResult",
+  "type": "object",
+  "required": ["status", "days"],
+  "properties": {
+    "status": { "type": "string", "enum": ["SUCCESS", "PARTIAL", "UNAVAILABLE", "UNKNOWN"] },
+    "days": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["date", "items"],
+        "properties": {
+          "date": { "type": "string", "format": "date" },
+          "weather": { "type": ["string", "null"] },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "start_time"],
+              "properties": {
+                "name": { "type": "string" },
+                "start_time": { "type": "string" },
+                "duration_minutes": { "type": "integer" },
+                "category": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "notes": { "type": "string" }
+  },
+  "additionalProperties": false
+}

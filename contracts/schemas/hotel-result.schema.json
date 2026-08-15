@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a2a-multi-agent-poc/contracts/hotel-result.schema.json",
+  "title": "HotelResult",
+  "type": "object",
+  "required": ["status", "options"],
+  "properties": {
+    "status": { "type": "string", "enum": ["SUCCESS", "PARTIAL", "UNAVAILABLE", "UNKNOWN"] },
+    "options": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "price_per_night", "currency"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "price_per_night": { "type": "number" },
+          "currency": { "type": "string" },
+          "rating": { "type": "number" },
+          "location": { "type": "string" }
+        }
+      }
+    },
+    "notes": { "type": "string" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,20 @@
+{
+  "request_id": "7c2f9c1e-2b3a-4a3a-9b1a-1a2b3c4d5e6f",
+  "status": "COMPLETED",
+  "flight": { "status": "SUCCESS", "options": [] },
+  "hotel": { "status": "SUCCESS", "options": [] },
+  "activities": { "status": "SUCCESS", "days": [] },
+  "budget": {
+    "status": "SUCCESS",
+    "budget_status": "WITHIN_BUDGET",
+    "total": 7450,
+    "limit": 8000,
+    "remaining": 550
+  },
+  "enrichment": { "status": "SKIPPED", "provider": null },
+  "metadata": {
+    "trace_id": "00000000000000000000000000000000",
+    "correlation_id": "7c2f9c1e-2b3a-4a3a-9b1a-1a2b3c4d5e6f",
+    "duration_ms": 1234
+  }
+}

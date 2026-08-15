@@ -1,0 +1,114 @@
+services:
+
+  planner-agent:
+    build:
+      context: ./agents/planner-adk
+    environment:
+      SERVICE_NAME: planner-agent
+      PORT: 8001
+      PUBLIC_URL: http://planner-agent:8001
+      AGENT_REGISTRY_URL: http://agent-registry:8080
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAMESPACE: a2a-poc
+      AWS_AGENT_ENABLED: ${AWS_AGENT_ENABLED:-false}
+      AGENT_REQUEST_TIMEOUT_SECONDS: ${AGENT_REQUEST_TIMEOUT_SECONDS:-30}
+      AGENT_MAX_RETRIES: ${AGENT_MAX_RETRIES:-2}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8001:8001"
+    depends_on:
+      agent-registry:
+        condition: service_healthy
+      mock-specialist-agent:
+        condition: service_started
+      flight-agent:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+    networks:
+      - agent-net
+
+  mock-specialist-agent:
+    build:
+      context: ./agents/mock-specialist
+    environment:
+      SERVICE_NAME: mock-specialist-agent
+      PORT: 8099
+      PUBLIC_URL: http://mock-specialist-agent:8099
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAMESPACE: a2a-poc
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8099:8099"
+    networks:
+      - agent-net
+
+  flight-agent:
+    build:
+      context: ./agents/flight-openai
+    environment:
+      SERVICE_NAME: flight-agent
+      PORT: 8002
+      PUBLIC_URL: http://flight-agent:8002
+      MCP_FLIGHT_URL: http://mcp-flight:9001/mcp
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAMESPACE: a2a-poc
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AGENT_REQUEST_TIMEOUT_SECONDS: ${AGENT_REQUEST_TIMEOUT_SECONDS:-30}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8002:8002"
+    depends_on:
+      mcp-flight:
+        condition: service_started
+    networks:
+      - agent-net
+
+  mcp-flight:
+    build:
+      context: ./mcp/flight-search
+    environment:
+      PORT: 9001
+      MOCK_MODE: ${MOCK_MODE:-true}
+    ports:
+      - "9001:9001"
+    networks:
+      - agent-net
+
+  agent-registry:
+    build:
+      context: ./infrastructure/registry
+    environment:
+      PORT: 8080
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - agent-net
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.116.1
+    command:
+      - --config=/etc/otelcol/config.yaml
+    volumes:
+      - ./infrastructure/observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - agent-net
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.63.0
+    ports:
+      - "16686:16686"
+    networks:
+      - agent-net
+
+networks:
+  agent-net:
+    driver: bridge

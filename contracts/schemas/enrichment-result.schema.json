@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a2a-multi-agent-poc/contracts/enrichment-result.schema.json",
+  "title": "EnrichmentResult",
+  "type": "object",
+  "required": ["status", "provider"],
+  "properties": {
+    "status": { "type": "string", "enum": ["SUCCESS", "SKIPPED", "UNAVAILABLE"] },
+    "provider": { "type": ["string", "null"] },
+    "weather_summary": { "type": ["string", "null"] },
+    "destination_tips": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a2a-multi-agent-poc/contracts/travel-response.schema.json",
+  "title": "TravelResponse",
+  "type": "object",
+  "required": ["request_id", "status", "flight", "hotel", "activities", "budget", "enrichment", "metadata"],
+  "properties": {
+    "request_id": { "type": "string", "format": "uuid" },
+    "status": { "type": "string", "enum": ["COMPLETED", "PARTIAL", "FAILED"] },
+    "flight": { "$ref": "flight-result.schema.json" },
+    "hotel": { "$ref": "hotel-result.schema.json" },
+    "activities": { "$ref": "activity-result.schema.json" },
+    "budget": { "$ref": "budget-result.schema.json" },
+    "enrichment": { "$ref": "enrichment-result.schema.json" },
+    "metadata": {
+      "type": "object",
+      "required": ["trace_id"],
+      "properties": {
+        "trace_id": { "type": "string" },
+        "correlation_id": { "type": "string" },
+        "duration_ms": { "type": "number" }
+      }
+    }
+  },
+  "additionalProperties": false
+}

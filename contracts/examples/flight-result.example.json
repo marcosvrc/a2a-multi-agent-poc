@@ -1,0 +1,15 @@
+{
+  "status": "SUCCESS",
+  "recommended_option_id": "FL-0001",
+  "options": [
+    {
+      "id": "FL-0001",
+      "origin": "GRU",
+      "destination": "FLN",
+      "price": 850,
+      "currency": "BRL",
+      "provider": "mock"
+    }
+  ],
+  "notes": ""
+}

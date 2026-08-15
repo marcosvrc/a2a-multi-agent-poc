@@ -1,0 +1,18 @@
+[
+  {
+    "id": "mock-specialist-agent",
+    "name": "Mock Specialist Agent",
+    "url": "http://mock-specialist-agent:8099",
+    "agent_card_url": "http://mock-specialist-agent:8099/.well-known/agent-card.json",
+    "required": false,
+    "tags": ["mock", "m1-foundation"]
+  },
+  {
+    "id": "flight-agent",
+    "name": "Flight Agent",
+    "url": "http://flight-agent:8002",
+    "agent_card_url": "http://flight-agent:8002/.well-known/agent-card.json",
+    "required": true,
+    "tags": ["flight", "specialist"]
+  }
+]

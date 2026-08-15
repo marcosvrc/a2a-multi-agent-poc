@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a2a-multi-agent-poc/contracts/budget-result.schema.json",
+  "title": "BudgetResult",
+  "type": "object",
+  "required": ["status", "budget_status", "total", "limit", "remaining"],
+  "properties": {
+    "status": { "type": "string", "enum": ["SUCCESS", "PARTIAL", "UNAVAILABLE", "UNKNOWN"] },
+    "budget_status": { "type": "string", "enum": ["WITHIN_BUDGET", "NEAR_LIMIT", "OVER_BUDGET", "UNKNOWN"] },
+    "flight_cost": { "type": "number" },
+    "hotel_cost": { "type": "number" },
+    "activity_cost": { "type": "number" },
+    "food_estimate": { "type": "number" },
+    "transport_estimate": { "type": "number" },
+    "total": { "type": "number" },
+    "limit": { "type": "number" },
+    "remaining": { "type": "number" }
+  },
+  "additionalProperties": false
+}
