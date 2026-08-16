@@ -1,0 +1,13 @@
+{
+  "status": "SUCCESS",
+  "budget_status": "WITHIN_BUDGET",
+  "flight_cost": 1224.0,
+  "hotel_cost": 1212.0,
+  "activity_cost": 560.0,
+  "food_estimate": 960.0,
+  "transport_estimate": 480.0,
+  "total": 4436.0,
+  "limit": 8000.0,
+  "remaining": 3564.0,
+  "notes": ""
+}

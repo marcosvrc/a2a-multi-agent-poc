@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { buildResponse } from "../src/nodes/build.js";
 import { filterResults } from "../src/nodes/filter.js";
 import { parseRequest } from "../src/nodes/parse.js";
 import { rankResults } from "../src/nodes/rank.js";
@@ -82,4 +83,32 @@ test("rankResults orders by rating desc, price asc tiebreaker, capped at 5", () 
     out.rankedHotels?.map((h) => h.id),
     ["H2", "H1", "H3"],
   );
+});
+
+test("parseRequest rejects a non-ISO date instead of letting it become NaN downstream", () => {
+  const state = baseState({
+    rawInput: JSON.stringify({
+      destination: "Florianopolis",
+      start_date: "20/09/2026",
+      end_date: "2026-09-24",
+      travelers: 2,
+    }),
+  });
+  const out = parseRequest(state);
+  assert.ok(out.parseError);
+  assert.match(out.parseError ?? "", /ISO-8601/);
+});
+
+test("buildResponse returns PARTIAL (not UNAVAILABLE) when MCP had hotels but all were filtered out by budget", () => {
+  const state = baseState({ rawHotels: HOTELS, rankedHotels: [] });
+  const out = buildResponse(state);
+  assert.equal(out.response?.status, "PARTIAL");
+  assert.match(out.response?.notes ?? "", /budget/);
+});
+
+test("buildResponse returns UNAVAILABLE when MCP genuinely had no hotels for the destination", () => {
+  const state = baseState({ rawHotels: [], rankedHotels: [] });
+  const out = buildResponse(state);
+  assert.equal(out.response?.status, "UNAVAILABLE");
+  assert.match(out.response?.notes ?? "", /destination/);
 });

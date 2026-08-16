@@ -21,8 +21,10 @@ completo (`graph.test.ts`), incluindo o caso de MCP indisponível.
   que cada Agent Card tem os campos obrigatórios do §8 (inclui o
   hotel-agent, provando que o Agent Card em TypeScript é indistinguível
   do Python do ponto de vista do protocolo).
-- `test_hotel_result_example_matches_schema` / `test_flight_result_...` /
-  `test_activity_result_example_matches_schema` — cada resultado por
+- `test_flight_result_example_matches_schema` /
+  `test_hotel_result_example_matches_schema` /
+  `test_activity_result_example_matches_schema` /
+  `test_budget_result_example_matches_schema` — cada resultado por
   especialista tem seu próprio exemplo em `contracts/examples/` validado
   contra o schema correspondente.
 
@@ -44,6 +46,12 @@ completo (`graph.test.ts`), incluindo o caso de MCP indisponível.
   final tem `activities.status = SUCCESS` com um dia de roteiro por data
   da viagem, sem conflitos de horário, além de `flight`/`hotel`
   simultaneamente `SUCCESS`.
+- `tests/e2e/test_fase5_budget.py` — requer `PLANNER_URL`, valida que o
+  `budget-agent` (CrewAI) real responde via A2A recebendo os resultados
+  de flight/hotel/activity (não o request bruto), e que com os quatro
+  especialistas centrais `SUCCESS` a `TravelResponse` chega a
+  `status = COMPLETED`. Também cobre o caso `OVER_BUDGET` com um limite
+  de orçamento muito baixo.
 
 ## Resiliência
 

@@ -34,7 +34,17 @@ export async function searchHotels(
   const client = new Client({ name: "hotel-agent", version: "0.1.0" });
 
   try {
-    await client.connect(transport);
+    // `callTool`'s `{ timeout }` option only bounds the tool call itself —
+    // `connect()` has no deadline of its own, so an MCP server that
+    // accepts the TCP connection but never completes the MCP handshake
+    // (hung container, half-open connection) would otherwise block this
+    // agent's request indefinitely, never reaching `callTool` at all.
+    await Promise.race([
+      client.connect(transport),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new McpHotelSearchError(`MCP connect timed out after ${timeoutMs}ms`)), timeoutMs),
+      ),
+    ]);
     const result = await client.callTool(
       { name: "search_hotels", arguments: args },
       undefined,

@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 from opentelemetry import trace
 
@@ -38,12 +38,25 @@ tracer = trace.get_tracer(__name__)
 
 REQUIRED_FIELDS = ("destination", "start_date", "end_date")
 
-_SLOTS = ["09:00", "14:00", "17:30"]
+# Items per day are scheduled back-to-back starting at _DAY_START, each
+# one beginning _BUFFER_MINUTES after the previous item's end — this is
+# what actually "evita conflito de horários" (§5.4) regardless of how
+# long any given place's `duration_minutes` is (a fixed slot table like
+# "09:00"/"14:00" only avoids overlap by accident, for durations short
+# enough to fit the gap between slots).
+_DAY_START = time(9, 0)
+_BUFFER_MINUTES = 30
+_ITEMS_PER_DAY = 2
 
 
 def _date_range(start_date: str, end_date: str, max_days: int) -> list[str]:
-    start = date.fromisoformat(start_date)
-    end = date.fromisoformat(end_date)
+    try:
+        start = date.fromisoformat(start_date)
+        end = date.fromisoformat(end_date)
+    except (TypeError, ValueError):
+        # Malformed date strings must degrade like any other bad input
+        # (§31) — never let a ValueError escape into an unhandled -32000.
+        return []
     if end < start:
         return []
     days: list[str] = []
@@ -57,18 +70,20 @@ def _date_range(start_date: str, end_date: str, max_days: int) -> list[str]:
 def _build_day_items(day_index: int, places: list[dict]) -> list[dict]:
     if not places:
         return []
-    per_day = 2
     items: list[dict] = []
-    for slot_index in range(per_day):
-        place = places[(day_index * per_day + slot_index) % len(places)]
+    cursor = datetime.combine(date.today(), _DAY_START)
+    for slot_index in range(_ITEMS_PER_DAY):
+        place = places[(day_index * _ITEMS_PER_DAY + slot_index) % len(places)]
+        duration = place["duration_minutes"]
         items.append(
             {
                 "name": place["name"],
-                "start_time": _SLOTS[slot_index % len(_SLOTS)],
-                "duration_minutes": place["duration_minutes"],
+                "start_time": cursor.strftime("%H:%M"),
+                "duration_minutes": duration,
                 "category": place["category"],
             }
         )
+        cursor += timedelta(minutes=duration + _BUFFER_MINUTES)
     return items
 
 
@@ -121,6 +136,9 @@ async def _build_deterministic(req: dict) -> dict:
     days = _date_range(req["start_date"], req["end_date"], settings.max_days)
     if not days:
         return {"status": "UNAVAILABLE", "days": [], "notes": "invalid or empty date range"}
+    truncated = len(days) == settings.max_days and _date_range(
+        req["start_date"], req["end_date"], settings.max_days + 1
+    ) != days
 
     result_days = []
     any_weather = False
@@ -136,8 +154,13 @@ async def _build_deterministic(req: dict) -> dict:
             }
         )
 
-    notes = "" if any_weather else "weather forecast unavailable for all days; itinerary built without it"
-    return {"status": "SUCCESS", "days": result_days, "notes": notes}
+    notes_parts = []
+    if not any_weather:
+        notes_parts.append("weather forecast unavailable for all days; itinerary built without it")
+    if truncated:
+        notes_parts.append(f"trip longer than {settings.max_days} days; itinerary truncated to the first {settings.max_days}")
+    status = "PARTIAL" if truncated else "SUCCESS"
+    return {"status": status, "days": result_days, "notes": "; ".join(notes_parts)}
 
 
 async def _build_via_beeai(req: dict) -> dict:

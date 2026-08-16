@@ -7,14 +7,15 @@
   "properties": {
     "status": { "type": "string", "enum": ["SUCCESS", "PARTIAL", "UNAVAILABLE", "UNKNOWN"] },
     "budget_status": { "type": "string", "enum": ["WITHIN_BUDGET", "NEAR_LIMIT", "OVER_BUDGET", "UNKNOWN"] },
-    "flight_cost": { "type": "number" },
-    "hotel_cost": { "type": "number" },
-    "activity_cost": { "type": "number" },
-    "food_estimate": { "type": "number" },
-    "transport_estimate": { "type": "number" },
+    "flight_cost": { "type": ["number", "null"] },
+    "hotel_cost": { "type": ["number", "null"] },
+    "activity_cost": { "type": ["number", "null"] },
+    "food_estimate": { "type": ["number", "null"] },
+    "transport_estimate": { "type": ["number", "null"] },
     "total": { "type": "number" },
     "limit": { "type": "number" },
-    "remaining": { "type": "number" }
+    "remaining": { "type": "number" },
+    "notes": { "type": "string" }
   },
   "additionalProperties": false
 }

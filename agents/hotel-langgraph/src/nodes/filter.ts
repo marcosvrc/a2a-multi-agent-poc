@@ -18,10 +18,14 @@ export function filterResults(state: HotelGraphStateType): Partial<HotelGraphSta
     return { filteredHotels: state.rawHotels };
   }
 
-  const nights = Math.max(
-    1,
-    Math.round((Date.parse(endDate) - Date.parse(startDate)) / (1000 * 60 * 60 * 24)),
-  );
+  const rawNights = Math.round((Date.parse(endDate) - Date.parse(startDate)) / (1000 * 60 * 60 * 24));
+  if (Number.isNaN(rawNights)) {
+    // Defense in depth: the ISO-date regex in schemas.ts should already
+    // reject this upstream, but never silently treat "unparseable dates"
+    // as "every hotel is unaffordable" if that guard is ever bypassed.
+    return { filteredHotels: state.rawHotels };
+  }
+  const nights = Math.max(1, rawNights);
 
   const filtered = state.rawHotels.filter((h) => h.price_per_night * nights <= budget);
   return { filteredHotels: filtered };

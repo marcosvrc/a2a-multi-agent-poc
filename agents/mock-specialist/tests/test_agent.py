@@ -64,6 +64,19 @@ def test_unknown_method_returns_method_not_found():
     assert body["error"]["code"] == -32601
 
 
+def test_non_dict_json_body_returns_jsonrpc_error_not_500():
+    # A body that's valid JSON but not a JSON-RPC object (e.g. a bare
+    # array) used to reach `body.get("id")` and raise an unhandled
+    # AttributeError -> 500, instead of a proper JSON-RPC error envelope.
+    # This regression covers all 5 identical app/a2a/server.py copies
+    # (planner-adk, flight-openai, activity-beeai, budget-crewai,
+    # mock-specialist).
+    resp = client.post("/a2a", json=[1, 2, 3])
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["error"]["code"] == -32600
+
+
 def test_tasks_get_roundtrip():
     send_payload = {
         "jsonrpc": "2.0",

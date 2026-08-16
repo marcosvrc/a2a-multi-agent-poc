@@ -57,5 +57,6 @@ def test_travel_request_returns_real_flight_options():
     assert body["flight"]["status"] == "SUCCESS"
     assert 1 <= len(body["flight"]["options"]) <= 5
     assert body["flight"]["recommended_option_id"]
-    # Hotel/Activity/Budget still not implemented (Fase 3-5): overall PARTIAL.
-    assert body["status"] == "PARTIAL"
+    # Overall status depends on which other specialists are registered in
+    # the running stack (this test only asserts flight-agent's own
+    # contribution); see test_fase5_budget.py for the full COMPLETED case.

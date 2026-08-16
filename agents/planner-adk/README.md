@@ -4,18 +4,21 @@ Orquestrador global (Google ADK, Python). Nunca executa lógica de voo,
 hotel, atividade ou clima diretamente — apenas descobre especialistas via
 `agent-registry`, delega via A2A e consolida a resposta.
 
-## Escopo desta versão (Fase 4)
+## Escopo desta versão (Fase 5)
 
-`flight-agent`, `hotel-agent` e `activity-agent` já existem e são
-chamados de verdade via A2A: a resposta inclui `flight.status =
-SUCCESS`, `hotel.status = SUCCESS` e `activities.status = SUCCESS`, cada
-um com dados reais vindos dos respectivos servidores MCP. Os três usam a
+`flight-agent`, `hotel-agent`, `activity-agent` e `budget-agent` já
+existem e são chamados de verdade via A2A. Os três primeiros usam a
 mesma função genérica de parsing (`_parse_specialist_result`), provando
 que o Planner não precisa saber em que linguagem ou framework um
-especialista foi escrito — apenas seguir o contrato A2A. Budget/
-Enrichment ainda não existem (ver `PROJECT_SPEC.md` §43), então continuam
-aplicando as regras de degradação (§11): `budget` fica `UNKNOWN`,
-resposta geral continua `PARTIAL` até todos os especialistas existirem.
+especialista foi escrito — apenas seguir o contrato A2A. O `budget-agent`
+é diferente: ele não recebe o `TravelRequest` bruto, e sim os resultados
+já parseados de flight/hotel/activity mais o orçamento máximo (§5.5),
+então é delegado numa etapa própria (`_delegate_budget`), depois do
+laço de delegação genérico. Com os quatro `SUCCESS`, a resposta
+consolidada chega a `status = COMPLETED` (antes sempre `PARTIAL`). Só o
+Enrichment (AWS, §5.6, opcional) ainda não existe — continua aplicando a
+regra de degradação do §11: `enrichment` fica `SKIPPED`, o que nunca
+impede `COMPLETED`.
 
 ## Endpoints
 

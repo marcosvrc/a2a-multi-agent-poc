@@ -80,6 +80,13 @@ def build_jsonrpc_router(handler: TaskHandler, task_store: InMemoryTaskStore) ->
         except Exception:  # noqa: BLE001
             return _jsonrpc_error(None, -32700, "Parse error: invalid JSON")
 
+        if not isinstance(body, dict):
+            # Valid JSON (e.g. `[]`, `"x"`, `3`) but not a JSON-RPC object —
+            # without this guard body.get(...) below raises AttributeError,
+            # turning a malformed-but-parseable request into an unhandled
+            # 500 instead of a proper JSON-RPC error envelope.
+            return _jsonrpc_error(None, -32600, "Invalid Request: body must be a JSON object")
+
         request_id = body.get("id")
         method = body.get("method")
         params = body.get("params") or {}

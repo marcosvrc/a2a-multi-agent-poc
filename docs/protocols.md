@@ -5,11 +5,11 @@
 Ver ADR-008 para a justificativa de não usar o `a2a-sdk` oficial ainda.
 Implementado duas vezes, independentemente: uma vez em Python
 (`agents/*/app/a2a/`, usada por planner-agent, flight-agent,
-activity-agent e mock-specialist-agent — cada agente tem sua própria
-cópia do adapter, não um pacote compartilhado, per §42 regra 6) e uma vez
-em TypeScript (`agents/hotel-langgraph/src/a2a/`, usada pelo hotel-agent)
-— mesmo contrato de wire, sem código compartilhado entre as duas
-linguagens (ver ADR-010).
+activity-agent, budget-agent e mock-specialist-agent — cada agente tem
+sua própria cópia do adapter, não um pacote compartilhado, per §42 regra
+6) e uma vez em TypeScript (`agents/hotel-langgraph/src/a2a/`, usada pelo
+hotel-agent) — mesmo contrato de wire, sem código compartilhado entre as
+duas linguagens (ver ADR-010).
 
 - Agent Card: `GET /.well-known/agent-card.json`
 - JSON-RPC 2.0: `POST /a2a`
@@ -31,12 +31,17 @@ Hotel Agent (`mcp/hotel-search`, Streamable HTTP, `POST /mcp`, tool
 `search_hotels`, também SDK oficial `mcp` em Python — o servidor MCP em si
 não precisa ser reimplementado por linguagem, apenas o *cliente* MCP
 dentro do hotel-agent, que é TypeScript via `@modelcontextprotocol/sdk`,
-ver `agents/hotel-langgraph/src/mcpClient.ts`) e para o Activity Agent
+ver `agents/hotel-langgraph/src/mcpClient.ts`), para o Activity Agent
 (`mcp/places`, tool `search_places`, e `mcp/weather`, tool `get_weather`
-— ambos Streamable HTTP, SDK oficial `mcp`, consumidos pelo mesmo cliente
-genérico `agents/activity-beeai/app/mcp_client.py::call_mcp_tool`).
-`MOCK_MODE=true` por padrão (§23) — dados determinísticos, sem API paga.
-Currency/Calculator ainda não implementados (Fase 5).
+— consumidos pelo cliente genérico
+`agents/activity-beeai/app/mcp_client.py::call_mcp_tool`) e para o Budget
+Agent (`mcp/currency`, tool `convert_currency`, tabela de câmbio fixa; e
+`mcp/calculator`, tools `sum`/`subtract`/`multiply`/`divide` — sem
+`eval`, per §33 — consumidos pelo cliente genérico
+`agents/budget-crewai/app/mcp_client.py::call_mcp_tool`). Todos
+Streamable HTTP, SDK oficial `mcp`. `MOCK_MODE=true` por padrão (§23) —
+dados determinísticos, sem API paga (Calculator não tem `MOCK_MODE` — é
+aritmética pura, não busca dado externo).
 
 ## HTTP / Health
 

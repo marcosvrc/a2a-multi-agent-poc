@@ -6,7 +6,7 @@ interoperando por **A2A** (Agent-to-Agent) e consumindo ferramentas por
 
 Especificação completa: [`a2a-multi-agent-poc-PROJECT_SPEC.md`](./a2a-multi-agent-poc-PROJECT_SPEC.md).
 
-## Status: Fase 4 — Activity Agent real (BeeAI)
+## Status: Fase 5 — Budget Agent real (CrewAI)
 
 Implementado até aqui (ver `docs/architecture.md` para detalhes):
 
@@ -34,10 +34,21 @@ Implementado até aqui (ver `docs/architecture.md` para detalhes):
   `search_flights`, dados mock determinísticos.
 - **MCP Hotel Search** (`mcp/hotel-search`): servidor MCP com a tool
   `search_hotels`, dados mock determinísticos.
+- **Budget Agent** (`agents/budget-crewai`, CrewAI / Python): combina os
+  resultados de voo/hotel/atividade (não busca nada) em um total via
+  `mcp-currency` + `mcp-calculator`, skills A2A `calculate_budget`/
+  `optimize_budget`. Caminho determinístico por padrão (grátis); caminho
+  guiado por CrewAI opcional com `CREWAI_LLM_MODEL` (ver ADR-012). É o
+  único especialista delegado depois (não junto) dos outros três, já que
+  precisa dos resultados deles, não do pedido bruto.
 - **MCP Places** (`mcp/places`): servidor MCP com a tool `search_places`,
   dados mock determinísticos, priorizados por `preferences`.
 - **MCP Weather** (`mcp/weather`): servidor MCP com a tool `get_weather`,
   previsão mock determinística local (§5.4 "poderá usar mock local").
+- **MCP Currency** (`mcp/currency`): servidor MCP com a tool
+  `convert_currency`, tabela de câmbio fixa e ilustrativa.
+- **MCP Calculator** (`mcp/calculator`): servidor MCP com as tools `sum`/
+  `subtract`/`multiply`/`divide` — sem `eval`, por exigência do spec.
 - **Mock Specialist Agent** (`agents/mock-specialist`): agente A2A trivial,
   mantido para validar o protocolo independentemente dos especialistas.
 - **Agent Registry** (`infrastructure/registry`): diretório de agentes.
@@ -46,7 +57,9 @@ Implementado até aqui (ver `docs/architecture.md` para detalhes):
 - **Contratos compartilhados** (`contracts/`): JSON Schemas de
   `TravelRequest`/`TravelResponse` e resultados por especialista.
 
-Budget e AWS Enrichment **ainda não foram implementados** —
+Com os quatro especialistas centrais reais (flight/hotel/activity/
+budget), o Planner agora pode retornar `status: COMPLETED` (antes sempre
+`PARTIAL`). Só o AWS Enrichment Agent **ainda não foi implementado** —
 propositalmente, seguindo a regra do spec de não implementar tudo de uma
 vez (§42) e a ordem recomendada em §43.
 
@@ -62,11 +75,14 @@ make local
 - Flight Agent: http://localhost:8002
 - Hotel Agent: http://localhost:8003
 - Activity Agent: http://localhost:8004
+- Budget Agent: http://localhost:8005
 - Mock Specialist Agent: http://localhost:8099
 - MCP Flight Search: http://localhost:9001
 - MCP Hotel Search: http://localhost:9002
 - MCP Places: http://localhost:9003
 - MCP Weather: http://localhost:9004
+- MCP Currency: http://localhost:9005
+- MCP Calculator: http://localhost:9006
 - Agent Registry: http://localhost:8080
 - Jaeger UI: http://localhost:16686
 
@@ -76,8 +92,8 @@ Teste rápido:
 ./scripts/smoke-test.sh
 ```
 
-Envie uma solicitação de viagem (agora com voos, hotéis e roteiro de
-atividades reais):
+Envie uma solicitação de viagem (agora com voos, hotéis, roteiro de
+atividades e orçamento calculado, todos reais):
 
 ```bash
 curl -X POST http://localhost:8001/v1/travel-requests \
@@ -85,14 +101,16 @@ curl -X POST http://localhost:8001/v1/travel-requests \
   -d @contracts/examples/travel-request.example.json
 ```
 
-A resposta traz `flight.status = SUCCESS`, `hotel.status = SUCCESS` e
-`activities.status = SUCCESS` (um roteiro diário, um dia por data da
-viagem); `budget` continua `UNKNOWN` até a próxima fase.
+Com os quatro especialistas centrais respondendo `SUCCESS`, a resposta
+inclui `status: COMPLETED` — `flight`, `hotel`, `activities` e `budget`
+todos `SUCCESS`, `budget.budget_status` classificado entre
+`WITHIN_BUDGET`/`NEAR_LIMIT`/`OVER_BUDGET`. `enrichment` continua
+`SKIPPED` (AWS opcional, desligado por padrão).
 
 Mais detalhes em `docs/local-development.md` e `docs/testing.md`.
 
 ## Próximo passo recomendado
 
-Fase 5 do spec (§43): implementar o **Budget Agent** (CrewAI / Python +
-MCP Currency + MCP Calculator), sem alterar os contratos A2A/Registry já
-validados.
+Fase 6 do spec (§43): paralelismo real entre os especialistas no
+Planner (hoje a delegação é sequencial), sem alterar os contratos A2A/
+Registry já validados.

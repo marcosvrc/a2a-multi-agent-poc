@@ -48,9 +48,15 @@ class ActivityResult(SubResult):
 class BudgetResult(BaseModel):
     status: Literal["SUCCESS", "PARTIAL", "UNAVAILABLE", "UNKNOWN"] = "UNKNOWN"
     budget_status: Literal["WITHIN_BUDGET", "NEAR_LIMIT", "OVER_BUDGET", "UNKNOWN"] = "UNKNOWN"
+    flight_cost: float | None = None
+    hotel_cost: float | None = None
+    activity_cost: float | None = None
+    food_estimate: float | None = None
+    transport_estimate: float | None = None
     total: float = 0
     limit: float = 0
     remaining: float = 0
+    notes: str = ""
 
 
 class EnrichmentResult(BaseModel):

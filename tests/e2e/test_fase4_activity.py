@@ -64,5 +64,5 @@ def test_travel_request_returns_real_activity_itinerary():
         assert day["items"]
         start_times = [item["start_time"] for item in day["items"]]
         assert len(start_times) == len(set(start_times))  # no scheduling conflicts
-    # Budget still not implemented (Fase 5): overall PARTIAL.
-    assert body["status"] == "PARTIAL"
+    # Overall status depends on whether budget-agent is registered in the
+    # running stack; see test_fase5_budget.py for the full COMPLETED case.

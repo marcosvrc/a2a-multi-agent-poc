@@ -27,6 +27,8 @@ services:
         condition: service_started
       activity-agent:
         condition: service_started
+      budget-agent:
+        condition: service_started
       otel-collector:
         condition: service_started
     networks:
@@ -153,6 +155,51 @@ services:
       MOCK_MODE: ${MOCK_MODE:-true}
     ports:
       - "9004:9004"
+    networks:
+      - agent-net
+
+  budget-agent:
+    build:
+      context: ./agents/budget-crewai
+    environment:
+      SERVICE_NAME: budget-agent
+      PORT: 8005
+      PUBLIC_URL: http://budget-agent:8005
+      MCP_CURRENCY_URL: http://mcp-currency:9005/mcp
+      MCP_CALCULATOR_URL: http://mcp-calculator:9006/mcp
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAMESPACE: a2a-poc
+      CREWAI_LLM_MODEL: ${CREWAI_LLM_MODEL:-}
+      AGENT_REQUEST_TIMEOUT_SECONDS: ${AGENT_REQUEST_TIMEOUT_SECONDS:-30}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8005:8005"
+    depends_on:
+      mcp-currency:
+        condition: service_started
+      mcp-calculator:
+        condition: service_started
+    networks:
+      - agent-net
+
+  mcp-currency:
+    build:
+      context: ./mcp/currency
+    environment:
+      PORT: 9005
+      MOCK_MODE: ${MOCK_MODE:-true}
+    ports:
+      - "9005:9005"
+    networks:
+      - agent-net
+
+  mcp-calculator:
+    build:
+      context: ./mcp/calculator
+    environment:
+      PORT: 9006
+    ports:
+      - "9006:9006"
     networks:
       - agent-net
 
