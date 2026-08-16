@@ -13,6 +13,13 @@ make local
 # ou: docker compose up --build
 ```
 
+Com o AWS Enrichment Agent ligado (opcional, `--profile aws`):
+
+```bash
+make aws-local   # AWS_AGENT_ENABLED=true MODEL_PROVIDER=ollama
+make aws-lite    # AWS_AGENT_ENABLED=true MODEL_PROVIDER=bedrock (requer credenciais AWS)
+```
+
 Serviços expostos:
 
 - Planner: http://localhost:8001
@@ -20,6 +27,7 @@ Serviços expostos:
 - Hotel Agent: http://localhost:8003
 - Activity Agent: http://localhost:8004
 - Budget Agent: http://localhost:8005
+- AWS Enrichment Agent (perfil `aws`): http://localhost:8006
 - Mock Specialist Agent: http://localhost:8099
 - MCP Flight Search: http://localhost:9001
 - MCP Hotel Search: http://localhost:9002
@@ -28,6 +36,7 @@ Serviços expostos:
 - MCP Currency: http://localhost:9005
 - MCP Calculator: http://localhost:9006
 - Agent Registry: http://localhost:8080
+- Ollama (perfil `aws`): http://localhost:11434
 - Jaeger UI: http://localhost:16686
 
 ## Rodando um agente fora do Docker
@@ -65,6 +74,15 @@ MCP_CURRENCY_URL=http://localhost:9005/mcp MCP_CALCULATOR_URL=http://localhost:9
   uvicorn app.main:app --reload --port 8005
 ```
 
+Para o aws-enrichment-agent, fora do Docker (caminho determinístico, sem
+Strands/Ollama/Bedrock):
+
+```bash
+cd agents/aws-strands
+pip install -e .
+MCP_WEATHER_URL=http://localhost:9004/mcp uvicorn app.main:app --reload --port 8006
+```
+
 ## Testes
 
 Cada agente tem sua própria suíte (`agents/<agente>/tests` em Python, ou
@@ -78,6 +96,7 @@ cd agents/flight-openai && pip install -e . pytest && pytest -q
 cd agents/hotel-langgraph && npm install && npm test
 cd agents/activity-beeai && pip install -e . pytest && pytest -q
 cd agents/budget-crewai && pip install -e . pytest && pytest -q
+cd agents/aws-strands && pip install -e . pytest && pytest -q
 ```
 
 Testes de contrato e E2E (raiz do repo, exigem serviços rodando):

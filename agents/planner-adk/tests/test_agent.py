@@ -1,3 +1,5 @@
+import asyncio
+import dataclasses
 import json
 from unittest.mock import AsyncMock
 
@@ -277,6 +279,203 @@ def test_agent_with_no_matching_skill_is_not_delegated_to(monkeypatch):
     body = resp.json()
     assert body["status"] == "FAILED"
     send_text.assert_not_called()
+
+
+def test_flight_hotel_activity_are_delegated_in_parallel(monkeypatch):
+    # §43 Fase 6 "Paralelismo": Flight/Hotel/Activity delegation must
+    # overlap, not run one after another. Each fake specialist call sleeps
+    # 150ms; if they ran sequentially that's >=450ms total, but run
+    # concurrently the whole fan-out should take close to one 150ms slot.
+    import time as time_module
+
+    monkeypatch.setattr(agent_module.registry_client, "list_agents", AsyncMock(return_value=_FOUR_SPECIALIST_AGENTS))
+    _mock_agent_cards(monkeypatch, _FOUR_SPECIALIST_CARDS)
+
+    flight_result = {"status": "SUCCESS", "options": [{"id": "FL-1", "price": 1000}], "recommended_option_id": "FL-1", "notes": ""}
+    hotel_result = {"status": "SUCCESS", "options": [{"id": "HT-1", "price_per_night": 300}], "notes": ""}
+    activity_result = {"status": "SUCCESS", "days": [], "notes": ""}
+    budget_result = {"status": "SUCCESS", "budget_status": "WITHIN_BUDGET", "total": 3000, "limit": 8000, "remaining": 5000, "notes": ""}
+
+    async def slow_send_text(url, text, context_id=None):
+        if "budget" not in url:
+            await asyncio.sleep(0.15)
+        if "flight" in url:
+            return _completed_task(flight_result)
+        if "hotel" in url:
+            return _completed_task(hotel_result)
+        if "activity" in url:
+            return _completed_task(activity_result)
+        if "budget" in url:
+            return _completed_task(budget_result)
+        raise AssertionError(f"unexpected url: {url}")
+
+    monkeypatch.setattr(agent_module.a2a_client, "send_text", slow_send_text)
+
+    payload = {
+        "origin": "Sao Paulo",
+        "destination": "Florianopolis",
+        "start_date": "2026-09-20",
+        "end_date": "2026-09-24",
+        "travelers": 2,
+        "budget": 8000,
+        "currency": "BRL",
+    }
+    started = time_module.perf_counter()
+    resp = client.post("/v1/travel-requests", json=payload)
+    elapsed = time_module.perf_counter() - started
+    assert resp.json()["status"] == "COMPLETED"
+    # Sequential would be >=0.45s (3 * 150ms) before even reaching Budget;
+    # concurrent should land well under that.
+    assert elapsed < 0.35, f"flight/hotel/activity delegation took {elapsed:.3f}s — looks sequential, not parallel"
+
+
+def test_enrichment_skipped_when_aws_agent_disabled(monkeypatch):
+    # §5.6/§11: AWS_AGENT_ENABLED=false (the default) means the Planner
+    # doesn't even try to discover/call an enrichment skill — this must
+    # never affect overall_status.
+    monkeypatch.setattr(agent_module.registry_client, "list_agents", AsyncMock(return_value=_FOUR_SPECIALIST_AGENTS))
+    _mock_agent_cards(monkeypatch, _FOUR_SPECIALIST_CARDS)
+
+    flight_result = {"status": "SUCCESS", "options": [{"id": "FL-1", "price": 1000}], "recommended_option_id": "FL-1", "notes": ""}
+    hotel_result = {"status": "SUCCESS", "options": [{"id": "HT-1", "price_per_night": 300}], "notes": ""}
+    activity_result = {"status": "SUCCESS", "days": [], "notes": ""}
+    budget_result = {"status": "SUCCESS", "budget_status": "WITHIN_BUDGET", "total": 3000, "limit": 8000, "remaining": 5000, "notes": ""}
+
+    called_urls: list[str] = []
+
+    async def fake_send_text(url, text, context_id=None):
+        called_urls.append(url)
+        if "flight" in url:
+            return _completed_task(flight_result)
+        if "hotel" in url:
+            return _completed_task(hotel_result)
+        if "activity" in url:
+            return _completed_task(activity_result)
+        if "budget" in url:
+            return _completed_task(budget_result)
+        raise AssertionError(f"unexpected url: {url}")
+
+    monkeypatch.setattr(agent_module.a2a_client, "send_text", fake_send_text)
+
+    payload = {
+        "origin": "Sao Paulo",
+        "destination": "Florianopolis",
+        "start_date": "2026-09-20",
+        "end_date": "2026-09-24",
+        "travelers": 2,
+        "budget": 8000,
+        "currency": "BRL",
+    }
+    resp = client.post("/v1/travel-requests", json=payload)
+    body = resp.json()
+    assert body["status"] == "COMPLETED"
+    assert body["enrichment"]["status"] == "SKIPPED"
+    assert body["enrichment"]["provider"] is None
+    for url in called_urls:
+        assert "enrich" not in url, "enrichment agent must not be called when AWS_AGENT_ENABLED=false"
+
+
+def test_enrichment_called_and_parsed_when_aws_agent_enabled(monkeypatch):
+    monkeypatch.setattr(
+        agent_module, "settings", dataclasses.replace(agent_module.settings, aws_agent_enabled=True)
+    )
+    agents = [*_FOUR_SPECIALIST_AGENTS, {"id": "aws-enrichment-agent", "url": "http://enrichment:8006"}]
+    cards = {
+        **_FOUR_SPECIALIST_CARDS,
+        "http://enrichment:8006": _card("aws-enrichment-agent", "http://enrichment:8006", "enrich_destination"),
+    }
+    monkeypatch.setattr(agent_module.registry_client, "list_agents", AsyncMock(return_value=agents))
+    _mock_agent_cards(monkeypatch, cards)
+
+    flight_result = {"status": "SUCCESS", "options": [{"id": "FL-1", "price": 1000}], "recommended_option_id": "FL-1", "notes": ""}
+    hotel_result = {"status": "SUCCESS", "options": [{"id": "HT-1", "price_per_night": 300}], "notes": ""}
+    activity_result = {"status": "SUCCESS", "days": [], "notes": ""}
+    budget_result = {"status": "SUCCESS", "budget_status": "WITHIN_BUDGET", "total": 3000, "limit": 8000, "remaining": 5000, "notes": ""}
+    enrichment_result = {
+        "status": "SUCCESS",
+        "provider": "mock",
+        "weather_summary": "Ensolarado, 27.0°C",
+        "destination_tips": ["Leve protetor solar."],
+    }
+
+    async def fake_send_text(url, text, context_id=None):
+        if "flight" in url:
+            return _completed_task(flight_result)
+        if "hotel" in url:
+            return _completed_task(hotel_result)
+        if "activity" in url:
+            return _completed_task(activity_result)
+        if "budget" in url:
+            return _completed_task(budget_result)
+        if "enrichment" in url:
+            return _completed_task(enrichment_result)
+        raise AssertionError(f"unexpected url: {url}")
+
+    monkeypatch.setattr(agent_module.a2a_client, "send_text", fake_send_text)
+
+    payload = {
+        "origin": "Sao Paulo",
+        "destination": "Florianopolis",
+        "start_date": "2026-09-20",
+        "end_date": "2026-09-24",
+        "travelers": 2,
+        "budget": 8000,
+        "currency": "BRL",
+    }
+    resp = client.post("/v1/travel-requests", json=payload)
+    body = resp.json()
+    # A SUCCESS-but-optional enrichment must not change COMPLETED, and
+    # its content must actually come through — this is the regression
+    # test for the schema gap where EnrichmentResult had no
+    # weather_summary/destination_tips fields and model_validate silently
+    # dropped them.
+    assert body["status"] == "COMPLETED"
+    assert body["enrichment"]["status"] == "SUCCESS"
+    assert body["enrichment"]["provider"] == "mock"
+    assert body["enrichment"]["weather_summary"] == "Ensolarado, 27.0°C"
+    assert body["enrichment"]["destination_tips"] == ["Leve protetor solar."]
+
+
+def test_enrichment_unavailable_when_aws_enabled_but_no_agent_registered(monkeypatch):
+    monkeypatch.setattr(
+        agent_module, "settings", dataclasses.replace(agent_module.settings, aws_agent_enabled=True)
+    )
+    monkeypatch.setattr(agent_module.registry_client, "list_agents", AsyncMock(return_value=_FOUR_SPECIALIST_AGENTS))
+    _mock_agent_cards(monkeypatch, _FOUR_SPECIALIST_CARDS)
+
+    flight_result = {"status": "SUCCESS", "options": [{"id": "FL-1", "price": 1000}], "recommended_option_id": "FL-1", "notes": ""}
+    hotel_result = {"status": "SUCCESS", "options": [{"id": "HT-1", "price_per_night": 300}], "notes": ""}
+    activity_result = {"status": "SUCCESS", "days": [], "notes": ""}
+    budget_result = {"status": "SUCCESS", "budget_status": "WITHIN_BUDGET", "total": 3000, "limit": 8000, "remaining": 5000, "notes": ""}
+
+    async def fake_send_text(url, text, context_id=None):
+        if "flight" in url:
+            return _completed_task(flight_result)
+        if "hotel" in url:
+            return _completed_task(hotel_result)
+        if "activity" in url:
+            return _completed_task(activity_result)
+        if "budget" in url:
+            return _completed_task(budget_result)
+        raise AssertionError(f"unexpected url: {url}")
+
+    monkeypatch.setattr(agent_module.a2a_client, "send_text", fake_send_text)
+
+    payload = {
+        "origin": "Sao Paulo",
+        "destination": "Florianopolis",
+        "start_date": "2026-09-20",
+        "end_date": "2026-09-24",
+        "travelers": 2,
+        "budget": 8000,
+        "currency": "BRL",
+    }
+    resp = client.post("/v1/travel-requests", json=payload)
+    body = resp.json()
+    # No agent advertises enrich_destination -> UNAVAILABLE, but this
+    # still must not drag overall_status down from COMPLETED (§11).
+    assert body["status"] == "COMPLETED"
+    assert body["enrichment"]["status"] == "UNAVAILABLE"
 
 
 def test_travel_request_rejects_invalid_date_range():

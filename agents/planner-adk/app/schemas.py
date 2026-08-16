@@ -62,6 +62,8 @@ class BudgetResult(BaseModel):
 class EnrichmentResult(BaseModel):
     status: Literal["SUCCESS", "SKIPPED", "UNAVAILABLE"] = "SKIPPED"
     provider: str | None = None
+    weather_summary: str | None = None
+    destination_tips: list[str] = Field(default_factory=list)
 
 
 class TravelResponseMetadata(BaseModel):

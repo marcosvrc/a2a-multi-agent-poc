@@ -38,5 +38,13 @@
     "agent_card_url": "http://budget-agent:8005/.well-known/agent-card.json",
     "required": true,
     "tags": ["budget", "specialist"]
+  },
+  {
+    "id": "aws-enrichment-agent",
+    "name": "AWS Enrichment Agent",
+    "url": "http://aws-enrichment-agent:8006",
+    "agent_card_url": "http://aws-enrichment-agent:8006/.well-known/agent-card.json",
+    "required": false,
+    "tags": ["enrichment", "optional", "aws"]
   }
 ]

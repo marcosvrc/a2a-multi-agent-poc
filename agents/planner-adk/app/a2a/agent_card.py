@@ -14,7 +14,7 @@ def build_agent_card(public_url: str) -> AgentCard:
             AgentSkill(
                 id="plan_trip",
                 name="Plan Trip",
-                description="Receives a TravelRequest, discovers specialist agents by skill, delegates to each (sequentially in this milestone; real parallel fan-out is a later Fase), and consolidates a TravelResponse.",
+                description="Receives a TravelRequest, discovers specialist agents by skill, delegates to Flight/Hotel/Activity in parallel and Budget afterward (it needs their results), and consolidates a TravelResponse.",
                 tags=["planner", "orchestration"],
             )
         ],

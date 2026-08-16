@@ -1,0 +1,9 @@
+{
+  "status": "SUCCESS",
+  "provider": "mock",
+  "weather_summary": "Ensolarado, 27.0°C",
+  "destination_tips": [
+    "Leve protetor solar e chegue cedo para garantir um bom lugar na praia.",
+    "Leve um documento de identificação válido durante toda a estadia em Florianopolis."
+  ]
+}

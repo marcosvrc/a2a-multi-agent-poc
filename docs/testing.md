@@ -24,7 +24,8 @@ completo (`graph.test.ts`), incluindo o caso de MCP indisponível.
 - `test_flight_result_example_matches_schema` /
   `test_hotel_result_example_matches_schema` /
   `test_activity_result_example_matches_schema` /
-  `test_budget_result_example_matches_schema` — cada resultado por
+  `test_budget_result_example_matches_schema` /
+  `test_enrichment_result_example_matches_schema` — cada resultado por
   especialista tem seu próprio exemplo em `contracts/examples/` validado
   contra o schema correspondente.
 
@@ -52,6 +53,24 @@ completo (`graph.test.ts`), incluindo o caso de MCP indisponível.
   especialistas centrais `SUCCESS` a `TravelResponse` chega a
   `status = COMPLETED`. Também cobre o caso `OVER_BUDGET` com um limite
   de orçamento muito baixo.
+- `tests/e2e/test_fase6_parallel.py` — requer `PLANNER_URL`, checagem de
+  regressão de correção (não de timing — ver o docstring do arquivo para
+  o porquê): confirma que delegar flight/hotel/activity concorrentemente
+  ainda produz uma `TravelResponse` `COMPLETED` válida, e que um agente
+  registrado sem nenhum skill relevante (`mock-specialist-agent`) não
+  quebra o `asyncio.gather`. A prova real de que a delegação é
+  concorrente (não apenas "ainda funciona") está no teste unitário
+  `agents/planner-adk/tests/test_agent.py::test_flight_hotel_activity_are_delegated_in_parallel`,
+  que controla latência de forma determinística.
+- `tests/e2e/test_fase7_enrichment.py` — requer `PLANNER_URL`. Dividido em
+  duas partes: um teste sempre executado (qualquer stack, com ou sem
+  profile `aws`) que confirma que `enrichment.status` em
+  `SKIPPED`/`SUCCESS`/`UNAVAILABLE` nunca impede `status = COMPLETED`; e
+  dois testes adicionais, opt-in via `AWS_E2E_ENABLED=true` (só fazem
+  sentido com a stack subida via `--profile aws` e
+  `AWS_AGENT_ENABLED=true` no planner), que validam que o
+  `aws-enrichment-agent` real responde via A2A com `enrichment.status =
+  SUCCESS` e conteúdo (`weather_summary`/`destination_tips`).
 
 ## Resiliência
 

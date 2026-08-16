@@ -5,26 +5,37 @@ RECEIVED -> DISCOVERING_AGENTS -> DELEGATING -> WAITING_SPECIALISTS ->
 CALCULATING_BUDGET -> OPTIONAL_ENRICHMENT -> CONSOLIDATING ->
 COMPLETED | PARTIAL | FAILED
 
-Fase 5 scope (PROJECT_SPEC.md §43): Flight, Hotel, Activity and now
-Budget are real specialists called over A2A (flight-agent in Python/
-OpenAI Agents SDK, hotel-agent in TypeScript/LangGraph, activity-agent in
+Fase 5 scope (PROJECT_SPEC.md §43): Flight, Hotel, Activity and Budget
+are real specialists called over A2A (flight-agent in Python/OpenAI
+Agents SDK, hotel-agent in TypeScript/LangGraph, activity-agent in
 Python/BeeAI Framework, budget-agent in Python/CrewAI — proving A2A
-interoperability across languages and frameworks). Only Enrichment
-(§5.6) still doesn't exist, so this module keeps applying its documented
-degradation rule (§11): enrichment -> status SKIPPED (AWS agent
-optional/off by default).
+interoperability across languages and frameworks).
 
-Unlike the other three specialists, Budget does not receive the raw
-TravelRequest: per §5.5 it needs the flight/hotel/activity *results*
-plus the budget limit, so it is delegated separately, after those three
-are parsed (see `_delegate_budget`) — the only specialist whose
-delegation is sequenced rather than fanned out with the rest.
+Fase 6 scope (§43 "Paralelismo"): Flight, Hotel and Activity are now
+delegated concurrently (`asyncio.gather`) instead of one after another —
+they're independent of each other, so there's no reason WAITING_SPECIALISTS
+should take as long as the sum of all three round-trips. Budget still
+can't join that fan-out: per §5.5 it needs their *results*, not the raw
+TravelRequest, so it stays sequenced after (see `_delegate_budget`).
+Agent Card discovery (`_agents_by_skill`) is likewise fetched concurrently
+now, for the same reason — nothing about DISCOVERING_AGENTS requires
+fetching one agent's card before starting the next.
 
-Real specialists are wired in incrementally per §43 Fase 6-9, without
+Fase 7 scope (§5.6/§43 "AWS"): the AWS Enrichment Agent
+(agents/aws-strands, AWS Strands Agents SDK) is now a real, optional
+fifth specialist, delegated by `_delegate_enrichment` — same
+skill-based discovery as the other four, but only attempted at all when
+`AWS_AGENT_ENABLED=true` (§11: "AWS Enrichment indisponível: Ignorar.
+Não marcar o fluxo como falha" — this is why `enrichment` stays excluded
+from the COMPLETED/PARTIAL/FAILED calculation below, unlike the four
+core specialists).
+
+Real specialists are wired in incrementally per §43 Fase 8-9, without
 changing this module's public contract.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -66,6 +77,7 @@ _SKILL_FLIGHT = "search_flights"
 _SKILL_HOTEL = "search_hotels"
 _SKILL_ACTIVITY = "plan_activities"
 _SKILL_BUDGET = "calculate_budget"
+_SKILL_ENRICHMENT = "enrich_destination"
 
 
 def _log_state(request_id: str, state: str) -> None:
@@ -86,6 +98,14 @@ async def discover_agents() -> list[dict[str, Any]]:
             return []
 
 
+async def _fetch_agent_card(agent: dict[str, Any]) -> Any | None:
+    try:
+        return await a2a_client.get_agent_card(agent["url"])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("failed to fetch agent card for %s: %s", agent.get("id"), exc)
+        return None
+
+
 async def _agents_by_skill(agents: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """Fetches each discovered agent's Agent Card and indexes agents by
     skill id (§9: Agent Card discovery, not hard-coded agent-id string
@@ -94,13 +114,16 @@ async def _agents_by_skill(agents: list[dict[str, Any]]) -> dict[str, dict[str, 
     first one discovered wins — out of scope for this POC to disambiguate
     further. An agent whose card can't be fetched or parsed is dropped
     silently (never a guess, §31) rather than assumed to have any skill.
+
+    Cards are fetched concurrently (Fase 6 "Paralelismo") — one agent's
+    card being slow to respond shouldn't hold up discovering every other
+    agent's skills.
     """
+    cards = await asyncio.gather(*(_fetch_agent_card(agent) for agent in agents))
+
     result: dict[str, dict[str, Any]] = {}
-    for agent in agents:
-        try:
-            card = await a2a_client.get_agent_card(agent["url"])
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("failed to fetch agent card for %s: %s", agent.get("id"), exc)
+    for agent, card in zip(agents, cards):
+        if card is None:
             continue
         for skill in card.skills:
             result.setdefault(skill.id, agent)
@@ -143,10 +166,10 @@ async def run_foundation_check() -> dict[str, Any]:
     agents = await discover_agents()
 
     _log_state(request_id, "DELEGATING")
-    results = {}
-    for agent in agents:
-        result = await _delegate_to_agent(agent, _FOUNDATION_CHECK_PAYLOAD, request_id)
-        results[agent["id"]] = result
+    outcomes = await asyncio.gather(
+        *(_delegate_to_agent(agent, _FOUNDATION_CHECK_PAYLOAD, request_id) for agent in agents)
+    )
+    results = {agent["id"]: outcome for agent, outcome in zip(agents, outcomes)}
 
     _log_state(request_id, "CONSOLIDATING")
     status = "COMPLETED" if agents and all(r is not None for r in results.values()) else "PARTIAL"
@@ -259,6 +282,38 @@ async def _delegate_budget(
     return _parse_specialist_result("budget-agent", task, BudgetResult)
 
 
+async def _delegate_enrichment(
+    skill_agents: dict[str, dict[str, Any]],
+    payload: TravelRequest,
+    request_id: str,
+) -> EnrichmentResult:
+    """§5.6/§11: entirely optional and never on the critical path. Unlike
+    flight/hotel/activity/budget, this specialist isn't even attempted
+    unless AWS_AGENT_ENABLED=true — with it false (the default), the
+    Planner doesn't try to discover or call an enrichment skill at all,
+    matching §37's acceptance criterion that the AWS agent "puder ficar
+    desligado" without any other behavior change.
+    """
+    if not settings.aws_agent_enabled:
+        return EnrichmentResult(status="SKIPPED", provider=None)
+
+    enrichment_agent = skill_agents.get(_SKILL_ENRICHMENT)
+    if enrichment_agent is None:
+        return EnrichmentResult(status="UNAVAILABLE", provider=None)
+
+    enrichment_payload = json.dumps(
+        {
+            "request_id": request_id,
+            "destination": payload.destination,
+            "start_date": payload.start_date,
+            "end_date": payload.end_date,
+            "preferences": payload.preferences,
+        }
+    )
+    task = await _delegate_to_agent(enrichment_agent, enrichment_payload, request_id)
+    return _parse_specialist_result("aws-enrichment-agent", task, EnrichmentResult)
+
+
 async def handle_travel_request(payload: TravelRequest) -> TravelResponse:
     start = time.perf_counter()
     request_id = payload.request_id or str(uuid.uuid4())
@@ -283,14 +338,31 @@ async def handle_travel_request(payload: TravelRequest) -> TravelResponse:
     delegation_payload = payload.model_dump()
     delegation_payload["request_id"] = request_id
     delegation_text = json.dumps(delegation_payload)
-    delegation_results: dict[str, dict[str, Any] | None] = {}
-    for skill_id, label in (
+
+    # Flight/Hotel/Activity are independent of one another — nothing about
+    # one specialist's answer feeds another's request — so they're fanned
+    # out concurrently (§43 Fase 6 "Paralelismo") instead of one after
+    # another. Budget is excluded here on purpose: per §5.5 it needs their
+    # *results*, so it can only run after this fan-out completes (see
+    # _delegate_budget, called below once WAITING_SPECIALISTS is done).
+    _delegation_targets = (
         (_SKILL_FLIGHT, "flight-agent"),
         (_SKILL_HOTEL, "hotel-agent"),
         (_SKILL_ACTIVITY, "activity-agent"),
-    ):
+    )
+
+    async def _delegate_if_present(skill_id: str) -> dict[str, Any] | None:
         agent = skill_agents.get(skill_id)
-        delegation_results[label] = await _delegate_to_agent(agent, delegation_text, request_id) if agent else None
+        if agent is None:
+            return None
+        return await _delegate_to_agent(agent, delegation_text, request_id)
+
+    delegation_outcomes = await asyncio.gather(
+        *(_delegate_if_present(skill_id) for skill_id, _ in _delegation_targets)
+    )
+    delegation_results: dict[str, dict[str, Any] | None] = dict(
+        zip((label for _, label in _delegation_targets), delegation_outcomes)
+    )
 
     _log_state(request_id, "WAITING_SPECIALISTS")
     flight = _parse_specialist_result("flight-agent", delegation_results.get("flight-agent"), FlightResult)
@@ -301,10 +373,7 @@ async def handle_travel_request(payload: TravelRequest) -> TravelResponse:
     budget = await _delegate_budget(skill_agents, payload, flight, hotel, activities, request_id)
 
     _log_state(request_id, "OPTIONAL_ENRICHMENT")
-    enrichment = EnrichmentResult(status="SKIPPED", provider=None)
-    if settings.aws_agent_enabled:
-        # AWS Enrichment agent is optional and never on the critical path (§5.6).
-        enrichment = EnrichmentResult(status="UNAVAILABLE", provider=None)
+    enrichment = await _delegate_enrichment(skill_agents, payload, request_id)
 
     _log_state(request_id, "CONSOLIDATING")
     # Enrichment is intentionally excluded: it is optional and never on

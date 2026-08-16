@@ -57,6 +57,12 @@ def test_budget_result_example_matches_schema():
     jsonschema.Draft202012Validator(schema, registry=_registry()).validate(example)
 
 
+def test_enrichment_result_example_matches_schema():
+    schema = json.loads((SCHEMAS_DIR / "enrichment-result.schema.json").read_text())
+    example = json.loads((EXAMPLES_DIR / "enrichment-result.example.json").read_text())
+    jsonschema.Draft202012Validator(schema, registry=_registry()).validate(example)
+
+
 def test_all_schemas_are_valid_json_schema():
     for f in SCHEMAS_DIR.glob("*.json"):
         schema = json.loads(f.read_text())
