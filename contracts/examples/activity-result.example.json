@@ -1,0 +1,24 @@
+{
+  "status": "SUCCESS",
+  "days": [
+    {
+      "date": "2026-09-20",
+      "weather": "Ensolarado, 27.9°C",
+      "items": [
+        {
+          "name": "Praia do Farol (Florianopolis)",
+          "start_time": "09:00",
+          "duration_minutes": 180,
+          "category": "beach"
+        },
+        {
+          "name": "Mirante Florianopolis",
+          "start_time": "14:00",
+          "duration_minutes": 90,
+          "category": "sightseeing"
+        }
+      ]
+    }
+  ],
+  "notes": ""
+}

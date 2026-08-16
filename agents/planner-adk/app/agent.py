@@ -5,17 +5,17 @@ RECEIVED -> DISCOVERING_AGENTS -> DELEGATING -> WAITING_SPECIALISTS ->
 CALCULATING_BUDGET -> OPTIONAL_ENRICHMENT -> CONSOLIDATING ->
 COMPLETED | PARTIAL | FAILED
 
-Fase 3 scope (PROJECT_SPEC.md §43): Flight and Hotel are now real
-specialists called over A2A (flight-agent in Python/OpenAI Agents SDK,
-hotel-agent in TypeScript/LangGraph — proving A2A interoperability across
-languages). Activity/Budget/Enrichment (§5.4-§5.6) still don't exist, so
-this module keeps applying the documented degradation rules (§11):
+Fase 4 scope (PROJECT_SPEC.md §43): Flight, Hotel and Activity are now
+real specialists called over A2A (flight-agent in Python/OpenAI Agents
+SDK, hotel-agent in TypeScript/LangGraph, activity-agent in Python/BeeAI
+Framework — proving A2A interoperability across languages and
+frameworks). Budget/Enrichment (§5.5-§5.6) still don't exist, so this
+module keeps applying the documented degradation rules (§11):
 
-  activities -> status UNAVAILABLE, overall response PARTIAL
   budget -> status UNKNOWN (per §11 "Budget indisponível")
   enrichment -> status SKIPPED (AWS agent optional/off by default)
 
-Real specialists are wired in incrementally per §43 Fase 4-5, without
+Real specialists are wired in incrementally per §43 Fase 5, without
 changing this module's public contract.
 """
 from __future__ import annotations
@@ -161,9 +161,7 @@ async def handle_travel_request(payload: TravelRequest) -> TravelResponse:
     _log_state(request_id, "WAITING_SPECIALISTS")
     flight = _parse_specialist_result("flight-agent", delegation_results.get("flight-agent"), FlightResult)
     hotel = _parse_specialist_result("hotel-agent", delegation_results.get("hotel-agent"), HotelResult)
-    # Activity specialist is not implemented yet (Fase 4).
-    # Per §11, an unavailable specialist yields a PARTIAL overall response.
-    activities = ActivityResult(status="UNAVAILABLE", notes="activity-agent not implemented yet (planned for Fase 4)")
+    activities = _parse_specialist_result("activity-agent", delegation_results.get("activity-agent"), ActivityResult)
 
     _log_state(request_id, "CALCULATING_BUDGET")
     # Budget specialist not implemented yet -> §11 "Budget indisponível" rule.

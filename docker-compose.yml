@@ -25,6 +25,8 @@ services:
         condition: service_started
       hotel-agent:
         condition: service_started
+      activity-agent:
+        condition: service_started
       otel-collector:
         condition: service_started
     networks:
@@ -105,6 +107,52 @@ services:
       MOCK_MODE: ${MOCK_MODE:-true}
     ports:
       - "9002:9002"
+    networks:
+      - agent-net
+
+  activity-agent:
+    build:
+      context: ./agents/activity-beeai
+    environment:
+      SERVICE_NAME: activity-agent
+      PORT: 8004
+      PUBLIC_URL: http://activity-agent:8004
+      MCP_PLACES_URL: http://mcp-places:9003/mcp
+      MCP_WEATHER_URL: http://mcp-weather:9004/mcp
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAMESPACE: a2a-poc
+      BEEAI_CHAT_MODEL: ${BEEAI_CHAT_MODEL:-}
+      AGENT_REQUEST_TIMEOUT_SECONDS: ${AGENT_REQUEST_TIMEOUT_SECONDS:-30}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8004:8004"
+    depends_on:
+      mcp-places:
+        condition: service_started
+      mcp-weather:
+        condition: service_started
+    networks:
+      - agent-net
+
+  mcp-places:
+    build:
+      context: ./mcp/places
+    environment:
+      PORT: 9003
+      MOCK_MODE: ${MOCK_MODE:-true}
+    ports:
+      - "9003:9003"
+    networks:
+      - agent-net
+
+  mcp-weather:
+    build:
+      context: ./mcp/weather
+    environment:
+      PORT: 9004
+      MOCK_MODE: ${MOCK_MODE:-true}
+    ports:
+      - "9004:9004"
     networks:
       - agent-net
 

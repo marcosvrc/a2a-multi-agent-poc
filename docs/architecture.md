@@ -1,4 +1,4 @@
-# Arquitetura — Estado atual (Fase 3)
+# Arquitetura — Estado atual (Fase 4)
 
 Ver `a2a-multi-agent-poc-PROJECT_SPEC.md` na raiz do repositório para a
 especificação completa. Este documento descreve apenas o que já foi
@@ -22,10 +22,15 @@ Agent Registry (:8080)
   │            ▼
   │         mcp-flight-search (:9001)
   │
-  └─A2A──▶ Hotel Agent (LangGraph, TypeScript, :8003)
+  ├─A2A──▶ Hotel Agent (LangGraph, TypeScript, :8003)
+  │            │  MCP
+  │            ▼
+  │         mcp-hotel-search (:9002)
+  │
+  └─A2A──▶ Activity Agent (BeeAI Framework, Python, :8004)
                │  MCP
-               ▼
-            mcp-hotel-search (:9002)
+               ├────▶ mcp-places (:9003)
+               └────▶ mcp-weather (:9004)
 ```
 
 Componentes:
@@ -33,8 +38,9 @@ Componentes:
 - **planner-agent** (`agents/planner-adk`): orquestrador. Descobre agentes
   via `agent-registry`, delega via A2A, aplica as regras de degradação do
   §11 para capacidades ainda não implementadas, consolida `TravelResponse`.
-  Já parseia os resultados reais de `flight-agent` e `hotel-agent` (parser
-  genérico `_parse_specialist_result`, compartilhado entre os dois).
+  Já parseia os resultados reais de `flight-agent`, `hotel-agent` e
+  `activity-agent` (parser genérico `_parse_specialist_result`,
+  compartilhado pelos três).
 - **flight-agent** (`agents/flight-openai`): especialista de voos. Caminho
   determinístico por padrão (chama `mcp-flight-search`, ordena por preço,
   grátis); caminho guiado por LLM opcional com `OPENAI_API_KEY` via OpenAI
@@ -46,10 +52,22 @@ Componentes:
   A2A `search_hotels`. O adapter A2A é uma reimplementação própria em
   TypeScript/Express, espelhando o contrato de wire do adapter Python
   (ADR-010) — não há biblioteca compartilhada entre os dois.
+- **activity-agent** (`agents/activity-beeai`): especialista de
+  atividades. Caminho determinístico por padrão (chama `mcp-places` uma
+  vez e `mcp-weather` por dia, monta roteiro sem conflitos de horário,
+  grátis); caminho guiado por BeeAI Framework opcional com
+  `BEEAI_CHAT_MODEL` (ADR-011). Skills A2A `plan_activities` /
+  `optimize_itinerary`. Falha do MCP Weather nunca bloqueia o roteiro —
+  apenas aquele dia fica com `weather: null` (§5.4/CT-R03).
 - **mcp-flight-search** (`mcp/flight-search`): servidor MCP (Streamable
   HTTP) com a tool `search_flights`, dados mock determinísticos (§23/§31).
 - **mcp-hotel-search** (`mcp/hotel-search`): servidor MCP (Streamable
   HTTP) com a tool `search_hotels`, dados mock determinísticos (§23/§31).
+- **mcp-places** (`mcp/places`): servidor MCP (Streamable HTTP) com a tool
+  `search_places`, dados mock determinísticos, priorizados por
+  `preferences` (§23/§31).
+- **mcp-weather** (`mcp/weather`): servidor MCP (Streamable HTTP) com a
+  tool `get_weather`, previsão mock local determinística (§5.4/§23).
 - **mock-specialist-agent** (`agents/mock-specialist`): agente A2A trivial
   (skill `echo_ping`), mantido para validar o protocolo independentemente
   dos especialistas reais.
@@ -62,12 +80,12 @@ Componentes:
 
 ## Ainda não implementado
 
-- Activity / Budget / AWS Enrichment agents (Fases 4-5 e 7).
-- Servidores MCP restantes (`mcp/places`, `mcp/weather`, `mcp/currency`,
-  `mcp/calculator`) — Fases 4-5.
+- Budget / AWS Enrichment agents (Fases 5 e 7).
+- Servidores MCP restantes (`mcp/currency`, `mcp/calculator`) — Fase 5.
 - Segurança JWT/OAuth (Fase 9) — hoje `AUTH_MODE=dev`, sem token real.
 - Resiliência avançada (circuit breaker) — Fase 8. Timeout básico via
-  `httpx`/`fetch` já existe nos clientes A2A/Registry/MCP.
+  `httpx`/`fetch` já existe nos clientes A2A/Registry/MCP; degradação
+  por-dia do MCP Weather (CT-R03) já implementada no Activity Agent.
 - `docker-compose.aws.yml` e profile `aws` — Fase 7.
 - Paralelismo real entre especialistas no Planner — hoje a delegação é
   sequencial; paralelismo é Fase 6.

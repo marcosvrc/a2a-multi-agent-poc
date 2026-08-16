@@ -21,6 +21,10 @@ completo (`graph.test.ts`), incluindo o caso de MCP indisponível.
   que cada Agent Card tem os campos obrigatórios do §8 (inclui o
   hotel-agent, provando que o Agent Card em TypeScript é indistinguível
   do Python do ponto de vista do protocolo).
+- `test_hotel_result_example_matches_schema` / `test_flight_result_...` /
+  `test_activity_result_example_matches_schema` — cada resultado por
+  especialista tem seu próprio exemplo em `contracts/examples/` validado
+  contra o schema correspondente.
 
 ## Integration / E2E
 
@@ -35,11 +39,19 @@ completo (`graph.test.ts`), incluindo o caso de MCP indisponível.
   `hotel-agent` (TypeScript) real responde via A2A e que a
   `TravelResponse` final passa no JSON Schema completo, com
   `flight.status = SUCCESS` e `hotel.status = SUCCESS` simultaneamente.
+- `tests/e2e/test_fase4_activity.py` — requer `PLANNER_URL`, valida que o
+  `activity-agent` (BeeAI) real responde via A2A e que a `TravelResponse`
+  final tem `activities.status = SUCCESS` com um dia de roteiro por data
+  da viagem, sem conflitos de horário, além de `flight`/`hotel`
+  simultaneamente `SUCCESS`.
 
 ## Resiliência
 
-Ainda não implementado (Fase 8). Os testes CT-R01..CT-R06 do §35 serão
-adicionados quando houver especialistas reais para derrubar/atrasar.
+A suíte formal (CT-R01..CT-R06 do §35, com derrubada/atraso proposital de
+serviços) ainda não foi montada (Fase 8). Um caso já está coberto como
+efeito colateral da implementação do Activity Agent: CT-R03 ("MCP Weather
+falha → Activity continua sem clima") é testado em
+`agents/activity-beeai/tests/test_agent.py::test_weather_unavailable_still_returns_success`.
 
 ## CI
 

@@ -4,18 +4,18 @@ Orquestrador global (Google ADK, Python). Nunca executa lógica de voo,
 hotel, atividade ou clima diretamente — apenas descobre especialistas via
 `agent-registry`, delega via A2A e consolida a resposta.
 
-## Escopo desta versão (Fase 3)
+## Escopo desta versão (Fase 4)
 
-`flight-agent` e `hotel-agent` já existem e são chamados de verdade via
-A2A: a resposta inclui `flight.status = SUCCESS` e `hotel.status =
-SUCCESS`, cada um com opções reais vindas dos respectivos servidores MCP.
-O parser dos dois usa a mesma função genérica
-(`_parse_specialist_result`), provando que o Planner não precisa saber
-em que linguagem um especialista foi escrito — apenas seguir o contrato
-A2A. Activity/Budget/Enrichment ainda não existem (ver `PROJECT_SPEC.md`
-§43), então continuam aplicando as regras de degradação (§11):
-`activities` fica `UNAVAILABLE`, `budget` fica `UNKNOWN`, resposta geral
-continua `PARTIAL` até todos os especialistas existirem.
+`flight-agent`, `hotel-agent` e `activity-agent` já existem e são
+chamados de verdade via A2A: a resposta inclui `flight.status =
+SUCCESS`, `hotel.status = SUCCESS` e `activities.status = SUCCESS`, cada
+um com dados reais vindos dos respectivos servidores MCP. Os três usam a
+mesma função genérica de parsing (`_parse_specialist_result`), provando
+que o Planner não precisa saber em que linguagem ou framework um
+especialista foi escrito — apenas seguir o contrato A2A. Budget/
+Enrichment ainda não existem (ver `PROJECT_SPEC.md` §43), então continuam
+aplicando as regras de degradação (§11): `budget` fica `UNKNOWN`,
+resposta geral continua `PARTIAL` até todos os especialistas existirem.
 
 ## Endpoints
 
