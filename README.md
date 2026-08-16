@@ -94,6 +94,11 @@ Outros conceitos-chave usados no projeto:
 
 ### Visão geral do fluxo
 
+![Visão geral do fluxo: cliente → Planner → Agent Registry → especialistas via A2A → servidores MCP → observabilidade](./docs/img/Visao_Geral_Fluxo.png)
+
+<details>
+<summary>Fonte Mermaid deste diagrama</summary>
+
 ```mermaid
 flowchart TB
     User(["Cliente HTTP"]) -->|"POST /v1/travel-requests"| Planner
@@ -152,6 +157,8 @@ flowchart TB
     Enrichment -.-> Otel
 ```
 
+</details>
+
 Flight, Hotel e Activity são independentes entre si e delegados em
 paralelo (`asyncio.gather`); Budget só começa depois, porque precisa dos
 **resultados** dos três, não do pedido bruto; o AWS Enrichment Agent é
@@ -159,6 +166,11 @@ opcional (`AWS_AGENT_ENABLED`) e sempre o último, nunca bloqueando o
 `status: COMPLETED` — ver [`docs/architecture.md`](./docs/architecture.md#paralelismo-fase-6).
 
 ### Sequência de uma requisição
+
+![Sequência de uma requisição: cliente chama o Planner, que descobre agentes no Registry, delega Flight/Hotel/Activity em paralelo e Budget depois, e retorna a resposta consolidada](./docs/img/Diagrama_Sequencia.png)
+
+<details>
+<summary>Fonte Mermaid deste diagrama</summary>
 
 ```mermaid
 sequenceDiagram
@@ -190,6 +202,8 @@ sequenceDiagram
 
     P-->>C: TravelResponse consolidado (status geral)
 ```
+
+</details>
 
 Se um especialista responder 401 (token ausente/inválido), 5xx, timeout
 ou não responder, a chamada é tratada como falha desse especialista
