@@ -256,10 +256,23 @@ async def _build_via_crewai(req: dict) -> dict:
     docs/adr/ADR-012-budget-agent-crewai-optional.md and
     agents/budget-crewai/README.md.
     """
-    from crewai import Agent, Crew, Task  # noqa: PLC0415 — optional heavy import
+    from crewai import LLM, Agent, Crew, Task  # noqa: PLC0415 — optional heavy import
     from crewai.tools import tool  # noqa: PLC0415
 
     from .prompts import BUDGET_PROMPT  # noqa: PLC0415
+
+    # CREWAI_LLM_MODEL only gated whether this path ran at all — it was
+    # never actually threaded into the Agent() call below, so every
+    # guided run silently used crewai's own default LLM (OpenAI)
+    # regardless of what CREWAI_LLM_MODEL said. Caught by manual testing
+    # per ADR-012's "validate manually before depending on it"; fixed
+    # here. Model string follows LiteLLM convention: "ollama/<model>"
+    # needs base_url pointed at Ollama, anything else (e.g.
+    # "gpt-4o-mini") goes straight to its own provider via OPENAI_API_KEY.
+    llm_kwargs = {"model": settings.crewai_llm_model}
+    if settings.crewai_llm_model.startswith("ollama/"):
+        llm_kwargs["base_url"] = settings.crewai_llm_base_url
+    budget_llm = LLM(**llm_kwargs)
 
     @tool("convert_currency")
     async def convert_currency_tool(amount: float, from_currency: str, to_currency: str) -> str:
@@ -300,6 +313,7 @@ async def _build_via_crewai(req: dict) -> dict:
         goal="Calculate the total estimated trip cost and classify it against the traveler's budget.",
         backstory=BUDGET_PROMPT,
         tools=[convert_currency_tool, calc_sum_tool, calc_subtract_tool, calc_multiply_tool],
+        llm=budget_llm,
     )
     task = Task(
         description=json.dumps(req),

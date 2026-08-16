@@ -39,6 +39,64 @@ Serviços expostos:
 - Ollama (perfil `aws`): http://localhost:11434
 - Jaeger UI: http://localhost:16686
 
+## Ligando os caminhos guiados por LLM (opcional)
+
+Por padrão todo especialista roda no caminho determinístico (grátis, sem
+LLM). Três agentes têm um caminho alternativo opcional que usa um LLM de
+verdade sobre os mesmos dados mock (ver ADR-009/011/012):
+
+| Agente | Variável(is) | Backend | Precisa rebuildar imagem? |
+|---|---|---|---|
+| Flight Agent | `OPENAI_API_KEY` | OpenAI | Não — `openai-agents` já vem instalado |
+| Activity Agent | `INSTALL_BEEAI=true` + `BEEAI_CHAT_MODEL` | BeeAI Framework | Sim |
+| Budget Agent | `INSTALL_CREWAI=true` + `CREWAI_LLM_MODEL` | CrewAI | Sim |
+
+**Flight Agent** — só precisa da chave no `.env` (nunca commitada) e
+reiniciar o container:
+
+```bash
+# .env
+OPENAI_API_KEY=sk-...
+```
+```bash
+docker compose up -d flight-agent
+```
+
+**Activity Agent (BeeAI) e Budget Agent (CrewAI)** — além da variável de
+modelo, a dependência (`beeai-framework`/`crewai`) só entra na imagem se
+o build arg correspondente for `true` — ela é pesada e fica de fora do
+build padrão de propósito (mesma lógica do AWS Enrichment Agent/Strands).
+Sem o rebuild, a variável de modelo fica setada mas o agente cai
+silenciosamente no caminho determinístico (o `ImportError` é capturado —
+nunca quebra o fluxo, só não faz o que foi pedido).
+
+```bash
+# .env
+INSTALL_BEEAI=true
+BEEAI_CHAT_MODEL=ollama:llama3.1
+INSTALL_CREWAI=true
+CREWAI_LLM_MODEL=ollama/llama3.1
+# Se o Ollama estiver rodando direto na sua máquina (não no container
+# `ollama` do profile "aws") e você usa Docker Desktop no Mac/Windows:
+OLLAMA_API_BASE=http://host.docker.internal:11434
+```
+```bash
+docker compose build activity-agent budget-agent
+docker compose up -d activity-agent budget-agent
+```
+
+Sem Ollama, os mesmos `BEEAI_CHAT_MODEL`/`CREWAI_LLM_MODEL` também aceitam
+um modelo OpenAI (ex.: `openai:gpt-4o-mini` para o BeeAI,
+`gpt-4o-mini` para o CrewAI) — nesse caso a chamada real é para a OpenAI,
+usando a mesma `OPENAI_API_KEY` do Flight Agent, com custo por uso.
+
+Nenhum desses caminhos é exercitado pelos testes automatizados desta
+milestone (nenhum backend de chat real disponível em CI/dev) — a lógica
+de *wiring* (qual variável vira qual parâmetro do SDK) é testada com
+stubs (`agents/{activity-beeai,budget-crewai}/tests/test_agent.py`), mas
+o comportamento fim-a-fim contra um LLM de verdade precisa ser validado
+manualmente, como os próprios ADR-011/012 alertam.
+
 ## Autenticação (Fase 9)
 
 Todo `POST /a2a` exige um bearer token a partir desta fase —

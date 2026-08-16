@@ -17,4 +17,10 @@ RULES:
 - Use MCP search tool.
 - If MCP is unavailable, return status UNAVAILABLE.
 - Return JSON matching FlightResult schema.
+- The "status" field MUST be exactly one of these four strings, nothing
+  else (no "OK", no "found", no lowercase, no synonyms):
+  "SUCCESS" (options found), "PARTIAL" (some options found, e.g. reduced
+  results but usable), "UNAVAILABLE" (MCP tool failed or returned
+  nothing), "UNKNOWN" (unable to determine). Any other value is rejected
+  by the caller and treated as a failure.
 """

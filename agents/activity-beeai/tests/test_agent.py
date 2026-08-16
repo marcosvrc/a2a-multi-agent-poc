@@ -1,3 +1,5 @@
+import asyncio
+import dataclasses
 import json
 from unittest.mock import AsyncMock
 
@@ -126,3 +128,45 @@ def test_missing_required_field_fails_task():
     resp = client.post("/a2a", json=body)
     task = resp.json()["result"]
     assert task["status"]["state"] == "failed"
+
+
+def test_beeai_chat_model_routes_to_the_beeai_path(monkeypatch):
+    # Confirms build_activity_result's gate actually calls _build_via_beeai
+    # when BEEAI_CHAT_MODEL is set, and that it forwards the parsed
+    # request untouched — without depending on beeai-framework's own
+    # Tool/ChatModel classes (heavy, optional extra; not installed in
+    # this test environment, see ADR-011).
+    monkeypatch.setattr(agent_module, "settings", dataclasses.replace(agent_module.settings, beeai_chat_model="ollama:llama3.1"))
+    fake_result = {"status": "SUCCESS", "days": [], "notes": "from beeai stub"}
+    called_with = {}
+
+    async def fake_build_via_beeai(req):
+        called_with["req"] = req
+        return fake_result
+
+    monkeypatch.setattr(agent_module, "_build_via_beeai", fake_build_via_beeai)
+
+    req = {"destination": "Florianopolis", "start_date": "2026-09-20", "end_date": "2026-09-21"}
+    result = asyncio.run(agent_module.build_activity_result(req))
+
+    assert called_with["req"] == req
+    assert result == fake_result
+
+
+def test_beeai_path_falls_back_to_deterministic_on_failure(monkeypatch):
+    # BEEAI_CHAT_MODEL makes build_activity_result try _build_via_beeai
+    # first; since beeai-framework isn't installed in this test
+    # environment (optional extra — see pyproject.toml and the
+    # INSTALL_BEEAI Dockerfile build arg), the import itself fails, which
+    # must be caught and silently fall back to the deterministic path
+    # rather than breaking the Planner's flow (§5.4: never invent data,
+    # never block on the optional path).
+    monkeypatch.setattr(agent_module, "settings", dataclasses.replace(agent_module.settings, beeai_chat_model="ollama:llama3.1"))
+    mock_places = {"places": [{"name": "Praia Central", "category": "beach", "duration_minutes": 120}]}
+    mock_weather = {"provider": "mock", "forecast": {"date": "2026-09-20", "condition": "Ensolarado", "temperature_c": 27.0}}
+    monkeypatch.setattr(agent_module, "search_places", AsyncMock(return_value=mock_places))
+    monkeypatch.setattr(agent_module, "get_weather", AsyncMock(return_value=mock_weather))
+
+    req = {"destination": "Florianopolis", "start_date": "2026-09-20", "end_date": "2026-09-20"}
+    result = asyncio.run(agent_module.build_activity_result(req))
+    assert result["status"] in ("SUCCESS", "PARTIAL")

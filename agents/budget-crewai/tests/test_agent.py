@@ -1,4 +1,8 @@
+import asyncio
+import dataclasses
 import json
+import sys
+import types
 from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
@@ -340,3 +344,139 @@ def test_malformed_request_fields_degrade_instead_of_crashing(monkeypatch):
     )
     assert result["status"] == "UNAVAILABLE"
     assert result["budget_status"] == "UNKNOWN"
+
+
+def _install_fake_crewai(monkeypatch, captured):
+    """Stubs the `crewai` package in sys.modules so _build_via_crewai can
+    be exercised without the real (heavy, optional) dependency installed
+    — same reasoning as ADR-012's "not exercised by automated tests",
+    except this stub lets the wiring itself be verified without needing
+    a real LLM backend.
+    """
+
+    class FakeLLM:
+        def __init__(self, **kwargs):
+            captured["llm_kwargs"] = kwargs
+
+    class FakeAgent:
+        def __init__(self, **kwargs):
+            captured["agent_kwargs"] = kwargs
+
+    class FakeTask:
+        def __init__(self, **kwargs):
+            captured["task_kwargs"] = kwargs
+
+    class FakeCrew:
+        def __init__(self, **kwargs):
+            captured["crew_kwargs"] = kwargs
+
+        def kickoff(self):
+            return json.dumps(
+                {
+                    "status": "SUCCESS",
+                    "budget_status": "WITHIN_BUDGET",
+                    "flight_cost": 1000.0,
+                    "hotel_cost": 300.0,
+                    "activity_cost": 0.0,
+                    "food_estimate": 0.0,
+                    "transport_estimate": 0.0,
+                    "total": 1300.0,
+                    "limit": 5000.0,
+                    "remaining": 3700.0,
+                    "notes": "",
+                }
+            )
+
+    def fake_tool(_name):
+        def decorator(fn):
+            return fn
+
+        return decorator
+
+    fake_crewai = types.ModuleType("crewai")
+    fake_crewai.LLM = FakeLLM
+    fake_crewai.Agent = FakeAgent
+    fake_crewai.Crew = FakeCrew
+    fake_crewai.Task = FakeTask
+
+    fake_crewai_tools = types.ModuleType("crewai.tools")
+    fake_crewai_tools.tool = fake_tool
+
+    monkeypatch.setitem(sys.modules, "crewai", fake_crewai)
+    monkeypatch.setitem(sys.modules, "crewai.tools", fake_crewai_tools)
+
+
+def test_crewai_llm_model_is_wired_into_the_agent(monkeypatch):
+    # Regression test for a real bug caught by manual testing: CREWAI_LLM_MODEL
+    # only gated whether the guided path ran at all — it was never actually
+    # passed into Agent(), so every guided run silently used crewai's own
+    # default LLM regardless of what the operator configured.
+    captured = {}
+    _install_fake_crewai(monkeypatch, captured)
+    monkeypatch.setattr(
+        agent_module,
+        "settings",
+        dataclasses.replace(agent_module.settings, crewai_llm_model="gpt-4o-mini", crewai_llm_base_url="http://ollama:11434"),
+    )
+
+    req = {
+        "budget_limit": 5000,
+        "currency": "BRL",
+        "travelers": 1,
+        "nights": 1,
+        "flight": MOCK_FLIGHT,
+        "hotel": MOCK_HOTEL,
+        "activities": MOCK_ACTIVITIES,
+    }
+    result = asyncio.run(agent_module._build_via_crewai(req))
+
+    assert captured["llm_kwargs"] == {"model": "gpt-4o-mini"}
+    assert "agent_kwargs" in captured
+    assert captured["agent_kwargs"]["llm"] is not None
+    assert result["status"] == "SUCCESS"
+
+
+def test_crewai_ollama_model_passes_base_url(monkeypatch):
+    captured = {}
+    _install_fake_crewai(monkeypatch, captured)
+    monkeypatch.setattr(
+        agent_module,
+        "settings",
+        dataclasses.replace(
+            agent_module.settings, crewai_llm_model="ollama/llama3.1", crewai_llm_base_url="http://ollama-test:11434"
+        ),
+    )
+
+    req = {
+        "budget_limit": 5000,
+        "currency": "BRL",
+        "travelers": 1,
+        "nights": 1,
+        "flight": MOCK_FLIGHT,
+        "hotel": MOCK_HOTEL,
+        "activities": MOCK_ACTIVITIES,
+    }
+    asyncio.run(agent_module._build_via_crewai(req))
+
+    assert captured["llm_kwargs"] == {"model": "ollama/llama3.1", "base_url": "http://ollama-test:11434"}
+
+
+def test_crewai_path_falls_back_to_deterministic_on_failure(monkeypatch):
+    # Same fallback contract as aws-strands/activity-beeai: `crewai` isn't
+    # installed in this test environment (optional extra, ADR-012), so the
+    # import itself fails and build_budget_result must fall back to the
+    # deterministic path rather than breaking the Planner's flow.
+    monkeypatch.setattr(agent_module, "settings", dataclasses.replace(agent_module.settings, crewai_llm_model="gpt-4o-mini"))
+    _mock_calculator_and_currency(monkeypatch)
+
+    req = {
+        "budget_limit": 5000,
+        "currency": "BRL",
+        "travelers": 1,
+        "nights": 1,
+        "flight": MOCK_FLIGHT,
+        "hotel": MOCK_HOTEL,
+        "activities": MOCK_ACTIVITIES,
+    }
+    result = asyncio.run(agent_module.build_budget_result(req))
+    assert result["status"] == "SUCCESS"

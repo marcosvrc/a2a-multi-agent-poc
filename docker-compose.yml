@@ -171,6 +171,15 @@ services:
   activity-agent:
     build:
       context: ./agents/activity-beeai
+      args:
+        # Off by default — beeai-framework is a heavy optional dependency
+        # (see agents/activity-beeai/Dockerfile, same pattern as
+        # INSTALL_CREWAI/INSTALL_STRANDS). Set INSTALL_BEEAI=true in .env
+        # and rebuild (docker compose up --build activity-agent) to
+        # actually use BEEAI_CHAT_MODEL below — otherwise it's set but
+        # silently falls back to the deterministic path (ImportError is
+        # caught, ADR-011).
+        INSTALL_BEEAI: ${INSTALL_BEEAI:-false}
     environment:
       SERVICE_NAME: activity-agent
       PORT: 8004
@@ -180,6 +189,12 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_SERVICE_NAMESPACE: a2a-poc
       BEEAI_CHAT_MODEL: ${BEEAI_CHAT_MODEL:-}
+      # Read by beeai-framework's Ollama adapter itself (LiteLLM
+      # convention) when BEEAI_CHAT_MODEL is "ollama:<model>" — points at
+      # the aws-profile ollama service by default; override in .env to
+      # reach an Ollama running on the host instead (Docker Desktop on
+      # Mac/Windows: http://host.docker.internal:11434).
+      OLLAMA_API_BASE: ${OLLAMA_API_BASE:-http://ollama:11434}
       AGENT_REQUEST_TIMEOUT_SECONDS: ${AGENT_REQUEST_TIMEOUT_SECONDS:-30}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       AUTH_MODE: ${AUTH_MODE:-dev}
@@ -220,6 +235,12 @@ services:
   budget-agent:
     build:
       context: ./agents/budget-crewai
+      args:
+        # Off by default (same reasoning as INSTALL_BEEAI above). Set
+        # INSTALL_CREWAI=true in .env and rebuild to actually use
+        # CREWAI_LLM_MODEL — otherwise the guided path throws
+        # ImportError and silently falls back (ADR-012).
+        INSTALL_CREWAI: ${INSTALL_CREWAI:-false}
     environment:
       SERVICE_NAME: budget-agent
       PORT: 8005
@@ -229,6 +250,10 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_SERVICE_NAMESPACE: a2a-poc
       CREWAI_LLM_MODEL: ${CREWAI_LLM_MODEL:-}
+      # Read by app/agent.py's _build_via_crewai only when
+      # CREWAI_LLM_MODEL starts with "ollama/" — same convention/default
+      # as activity-agent's OLLAMA_API_BASE above.
+      OLLAMA_API_BASE: ${OLLAMA_API_BASE:-http://ollama:11434}
       AGENT_REQUEST_TIMEOUT_SECONDS: ${AGENT_REQUEST_TIMEOUT_SECONDS:-30}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       AUTH_MODE: ${AUTH_MODE:-dev}

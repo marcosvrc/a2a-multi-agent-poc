@@ -26,6 +26,7 @@ Enrichment, Resiliência e Segurança. Detalhes fase a fase em
 - [Tecnologias por componente](#tecnologias-por-componente)
 - [Estrutura do projeto](#estrutura-do-projeto)
 - [Como rodar](#como-rodar)
+- [Testando com uma tela (web-ui)](#testando-com-uma-tela-web-ui)
 - [Autenticação](#autenticação)
 - [Testando](#testando)
 - [Observabilidade](#observabilidade)
@@ -285,11 +286,15 @@ a2a-multi-agent-poc/
 ├── scripts/
 │   └── smoke-test.sh                     # sobe um request de ponta a ponta e confere o status
 │
+├── web-ui/                               # tela estática de teste manual (HTML/JS puro, sem build)
+│   └── index.html                        #   formulário de TravelRequest + resposta formatada
+│
 └── docs/
     ├── architecture.md                   # arquitetura fase a fase, com o "ainda não implementado"
     ├── local-development.md              # rodar cada agente fora do Docker, autenticação manual
     ├── testing.md                        # estratégia de teste completa, por nível
     ├── protocols.md / aws-mode.md
+    ├── img/                              # exports PNG dos diagramas Mermaid usados neste README
     └── adr/                              # 15 ADRs, uma decisão por arquivo (ver seção própria)
 ```
 
@@ -366,6 +371,26 @@ dois casos isso afeta `status: COMPLETED`.
 > (`docker.io`/`ghcr.io`) — indisponível em alguns ambientes de CI/sandbox
 > restritos. Rodando em uma máquina com acesso normal à internet,
 > `make local` funciona sem passos extras.
+
+## Testando com uma tela (web-ui)
+
+Para testar manualmente sem escrever `curl`/JSON à mão, `web-ui/index.html`
+é uma página estática (sem build, sem dependência) que chama
+`POST /v1/travel-requests` no Planner e renderiza a resposta — cartões de
+voo/hotel, roteiro por dia com clima, medidor de orçamento e link direto
+para o trace no Jaeger:
+
+```bash
+cd web-ui
+python3 -m http.server 8090
+# abra http://localhost:8090
+```
+
+Ou abra `web-ui/index.html` direto no browser. Detalhes e o porquê da
+escolha (por que só fala com o Planner, não com os especialistas
+individuais) em [`web-ui/README.md`](./web-ui/README.md). Para inspecionar
+um único agente isoladamente, o FastAPI de cada um já expõe um Swagger UI
+de graça em `http://localhost:<porta>/docs`, sem precisar de nada extra.
 
 ## Autenticação
 

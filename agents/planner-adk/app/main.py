@@ -4,6 +4,7 @@ import logging
 from functools import partial
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from .a2a.agent_card import build_agent_card
 from .a2a.server import InMemoryTaskStore, build_agent_card_router, build_jsonrpc_router
@@ -17,6 +18,21 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title=settings.service_name, version="0.1.0")
+
+# Permite que a web-ui estática (web-ui/index.html, aberta via file:// ou
+# servida por um static server local) chame /v1/travel-requests direto do
+# browser. Não expõe nada que já não estivesse público: só GET/POST de
+# rotas REST do próprio Planner, sem credenciais/cookies (allow_credentials
+# fica false de propósito — a auth service-to-service continua sendo o
+# bearer token do §7/§56, nunca cookie de browser). Não afeta a rota
+# /a2a, que é chamada agente-a-agente, não pelo browser.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
 card = build_agent_card(settings.public_url)
 task_store = InMemoryTaskStore()

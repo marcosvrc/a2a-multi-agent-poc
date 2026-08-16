@@ -33,6 +33,14 @@ tracer = trace.get_tracer(__name__)
 
 REQUIRED_FIELDS = ("origin", "destination", "start_date", "end_date")
 
+# Must mirror agents/planner-adk/app/schemas.py::SubResult.status — the
+# Planner rejects anything outside this set with a pydantic
+# ValidationError. The LLM path is the only one that can produce an
+# out-of-set value (the deterministic path only ever assigns literals
+# from this same set directly in code), so it's the one that needs a
+# guard before the result leaves this agent.
+VALID_STATUSES = {"SUCCESS", "PARTIAL", "UNAVAILABLE", "UNKNOWN"}
+
 
 def _rank_and_trim(flights: list[dict]) -> tuple[list[dict], str | None]:
     ranked = sorted(flights, key=lambda f: f["price"])[:5]
@@ -107,7 +115,17 @@ async def _search_via_llm(req: dict) -> dict:
     with tracer.start_as_current_span("llm.flight_agent"):
         result = await Runner.run(agent, json.dumps(req))
 
-    return json.loads(result.final_output)
+    parsed = json.loads(result.final_output)
+
+    # Guard against the model returning a status outside the schema's
+    # enum (e.g. "OK") — without this, a malformed-but-valid-JSON reply
+    # sails past this agent and only fails later, as a pydantic
+    # ValidationError, on the Planner's side (harder to diagnose and
+    # breaks the whole travel request instead of just this specialist).
+    if parsed.get("status") not in VALID_STATUSES:
+        raise ValueError(f"LLM returned an invalid status: {parsed.get('status')!r}")
+
+    return parsed
 
 
 async def build_flight_result(req: dict) -> dict:

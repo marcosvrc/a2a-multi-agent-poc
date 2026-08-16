@@ -22,8 +22,17 @@ class Settings:
     food_per_traveler_per_night: float = float(os.getenv("BUDGET_FOOD_PER_TRAVELER_PER_NIGHT", "120"))
     transport_per_traveler_per_night: float = float(os.getenv("BUDGET_TRANSPORT_PER_TRAVELER_PER_NIGHT", "60"))
     # Optional: only used by the CrewAI-driven path (see app/agent.py and
-    # docs/adr/ADR-012-budget-agent-crewai-optional.md).
+    # docs/adr/ADR-012-budget-agent-crewai-optional.md). Model string
+    # follows LiteLLM convention (what CrewAI's `LLM` class wraps), e.g.
+    # "gpt-4o-mini" (OpenAI, needs OPENAI_API_KEY) or "ollama/llama3.1"
+    # (needs Ollama reachable at crewai_llm_base_url, nothing else).
     crewai_llm_model: str = os.getenv("CREWAI_LLM_MODEL", "")
+    # Only read when crewai_llm_model starts with "ollama/" — same
+    # OLLAMA_API_BASE env var LiteLLM itself already reads by convention,
+    # so this doubles as the override LiteLLM would pick up on its own;
+    # kept explicit here so the LLM() call always shows where the value
+    # came from instead of relying on ambient env var magic.
+    crewai_llm_base_url: str = os.getenv("OLLAMA_API_BASE", "http://ollama:11434")
     # Fase 9 (§7/§56 "M6 Security"): see app/auth.py for what each
     # mode does. "dev" (spec default) requires DEV_AGENT_TOKEN on every
     # /a2a call; "jwt" requires a valid HS256 JWT instead.
