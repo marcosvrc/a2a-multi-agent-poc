@@ -3,6 +3,7 @@ import { Router as makeRouter } from "express";
 
 import type { AgentCard, Message, Task, TaskStatus } from "./models.js";
 import { newId } from "./models.js";
+import { AuthError, verifyRequest, type AuthConfig } from "./auth.js";
 
 export type TaskHandler = (message: Message) => Promise<Task>;
 
@@ -40,7 +41,11 @@ export function buildAgentCardRouter(card: AgentCard): Router {
  * response shape) so the Planner's existing A2A client works unchanged
  * against this TypeScript agent.
  */
-export function buildJsonRpcRouter(handler: TaskHandler, taskStore: InMemoryTaskStore): Router {
+export function buildJsonRpcRouter(
+  handler: TaskHandler,
+  taskStore: InMemoryTaskStore,
+  authConfig?: AuthConfig,
+): Router {
   const router = makeRouter();
 
   router.post("/a2a", async (req: Request, res: Response) => {
@@ -48,6 +53,18 @@ export function buildJsonRpcRouter(handler: TaskHandler, taskStore: InMemoryTask
     const id = body?.id;
     const method = body?.method;
     const params = body?.params ?? {};
+
+    if (authConfig !== undefined) {
+      try {
+        verifyRequest(req, authConfig);
+      } catch (err) {
+        if (err instanceof AuthError) {
+          res.status(401).json({ detail: err.message });
+          return;
+        }
+        throw err;
+      }
+    }
 
     if (method === "message/send") {
       const message = params.message as Message | undefined;

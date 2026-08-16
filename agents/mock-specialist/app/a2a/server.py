@@ -8,6 +8,15 @@ and §6.4):
 
 Streaming (`message/stream`, SSE) is not implemented in M1. The spec allows
 this: "O sistema deverá funcionar também sem streaming." (§6.5)
+
+Fase 9 (§7/§56 "M6 Security"): `build_jsonrpc_router` takes an optional
+`require_auth` callable, invoked before any JSON-RPC method is
+dispatched. It raises `fastapi.HTTPException(401)` on an unauthorized
+request — FastAPI turns that into a proper 401 response on its own, no
+extra handling needed here. `None` (the default) means "no auth check",
+used by tests and by any deployment explicitly running `AUTH_MODE=none`.
+The Agent Card route is never gated — see app/auth.py's module docstring
+for why.
 """
 from __future__ import annotations
 
@@ -64,17 +73,28 @@ def build_agent_card_router(card: AgentCard) -> APIRouter:
     return router
 
 
-def build_jsonrpc_router(handler: TaskHandler, task_store: InMemoryTaskStore) -> APIRouter:
+def build_jsonrpc_router(
+    handler: TaskHandler,
+    task_store: InMemoryTaskStore,
+    require_auth: Callable[[Request], Any] | None = None,
+) -> APIRouter:
     """Builds the JSON-RPC 2.0 endpoint implementing the A2A methods.
 
     `handler` receives the incoming user Message and must return a completed
     (or failed) Task. The router takes care of the JSON-RPC envelope,
     task persistence and `tasks/get` / `tasks/cancel` lookups.
+
+    `require_auth` (Fase 9, §7/§56): if provided, called with the raw
+    `Request` before anything else — see app/auth.py::verify_request, the
+    usual value passed here.
     """
     router = APIRouter()
 
     @router.post("/a2a")
     async def jsonrpc_endpoint(request: Request) -> JSONResponse:
+        if require_auth is not None:
+            require_auth(request)
+
         try:
             body = await request.json()
         except Exception:  # noqa: BLE001

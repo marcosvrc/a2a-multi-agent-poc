@@ -156,7 +156,7 @@ def test_travel_request_completed_when_all_four_specialists_succeed(monkeypatch)
 
     sent_payloads: dict[str, dict] = {}
 
-    async def fake_send_text(url, text, context_id=None):
+    async def fake_send_text(url, text, context_id=None, **_kwargs):
         sent_payloads[url] = json.loads(text)
         if "flight" in url:
             return _completed_task(flight_result)
@@ -296,7 +296,7 @@ def test_flight_hotel_activity_are_delegated_in_parallel(monkeypatch):
     activity_result = {"status": "SUCCESS", "days": [], "notes": ""}
     budget_result = {"status": "SUCCESS", "budget_status": "WITHIN_BUDGET", "total": 3000, "limit": 8000, "remaining": 5000, "notes": ""}
 
-    async def slow_send_text(url, text, context_id=None):
+    async def slow_send_text(url, text, context_id=None, **_kwargs):
         if "budget" not in url:
             await asyncio.sleep(0.15)
         if "flight" in url:
@@ -343,7 +343,7 @@ def test_enrichment_skipped_when_aws_agent_disabled(monkeypatch):
 
     called_urls: list[str] = []
 
-    async def fake_send_text(url, text, context_id=None):
+    async def fake_send_text(url, text, context_id=None, **_kwargs):
         called_urls.append(url)
         if "flight" in url:
             return _completed_task(flight_result)
@@ -398,7 +398,7 @@ def test_enrichment_called_and_parsed_when_aws_agent_enabled(monkeypatch):
         "destination_tips": ["Leve protetor solar."],
     }
 
-    async def fake_send_text(url, text, context_id=None):
+    async def fake_send_text(url, text, context_id=None, **_kwargs):
         if "flight" in url:
             return _completed_task(flight_result)
         if "hotel" in url:
@@ -448,7 +448,7 @@ def test_enrichment_unavailable_when_aws_enabled_but_no_agent_registered(monkeyp
     activity_result = {"status": "SUCCESS", "days": [], "notes": ""}
     budget_result = {"status": "SUCCESS", "budget_status": "WITHIN_BUDGET", "total": 3000, "limit": 8000, "remaining": 5000, "notes": ""}
 
-    async def fake_send_text(url, text, context_id=None):
+    async def fake_send_text(url, text, context_id=None, **_kwargs):
         if "flight" in url:
             return _completed_task(flight_result)
         if "hotel" in url:
@@ -522,7 +522,7 @@ def test_ct_r01_flight_unavailable_yields_partial(monkeypatch):
     activity_result = {"status": "SUCCESS", "days": [], "notes": ""}
     budget_result = {"status": "SUCCESS", "budget_status": "WITHIN_BUDGET", "total": 3000, "limit": 8000, "remaining": 5000, "notes": ""}
 
-    async def fake_send_text(url, text, context_id=None):
+    async def fake_send_text(url, text, context_id=None, **_kwargs):
         if "flight" in url:
             raise agent_module.A2AClientError("flight-agent unreachable")
         if "hotel" in url:
@@ -642,7 +642,7 @@ def test_ct_r04_aws_agent_disabled_yields_completed(monkeypatch):
     activity_result = {"status": "SUCCESS", "days": [], "notes": ""}
     budget_result = {"status": "SUCCESS", "budget_status": "WITHIN_BUDGET", "total": 3000, "limit": 8000, "remaining": 5000, "notes": ""}
 
-    async def fake_send_text(url, text, context_id=None):
+    async def fake_send_text(url, text, context_id=None, **_kwargs):
         if "flight" in url:
             return _completed_task(flight_result)
         if "hotel" in url:
@@ -684,7 +684,7 @@ def test_ct_r05_aws_agent_raises_error_yields_completed_with_enrichment_unavaila
     activity_result = {"status": "SUCCESS", "days": [], "notes": ""}
     budget_result = {"status": "SUCCESS", "budget_status": "WITHIN_BUDGET", "total": 3000, "limit": 8000, "remaining": 5000, "notes": ""}
 
-    async def fake_send_text(url, text, context_id=None):
+    async def fake_send_text(url, text, context_id=None, **_kwargs):
         if "flight" in url:
             return _completed_task(flight_result)
         if "hotel" in url:
@@ -714,7 +714,7 @@ def test_ct_r06_budget_failure_yields_partial_with_budget_status_unknown(monkeyp
     hotel_result = {"status": "SUCCESS", "options": [{"id": "HT-1", "price_per_night": 300}], "notes": ""}
     activity_result = {"status": "SUCCESS", "days": [], "notes": ""}
 
-    async def fake_send_text(url, text, context_id=None):
+    async def fake_send_text(url, text, context_id=None, **_kwargs):
         if "flight" in url:
             return _completed_task(flight_result)
         if "hotel" in url:
@@ -751,7 +751,7 @@ def test_circuit_breaker_opens_after_threshold_and_skips_further_delegation(monk
 
     call_count = 0
 
-    async def failing_send_text(url, text, context_id=None):
+    async def failing_send_text(url, text, context_id=None, **_kwargs):
         nonlocal call_count
         call_count += 1
         raise agent_module.A2AClientError("boom")
@@ -776,7 +776,7 @@ def test_circuit_breaker_is_per_agent_not_global(monkeypatch):
 
     agent_module.circuit_breakers = CircuitBreakerRegistry(failure_threshold=1, reset_timeout_seconds=30)
 
-    async def routed_send_text(url, text, context_id=None):
+    async def routed_send_text(url, text, context_id=None, **_kwargs):
         if "flaky" in url:
             raise agent_module.A2AClientError("boom")
         return _completed_task({"status": "SUCCESS", "options": [], "notes": ""})
@@ -792,3 +792,25 @@ def test_circuit_breaker_is_per_agent_not_global(monkeypatch):
     healthy_result = asyncio.run(agent_module._delegate_to_agent(healthy_agent, "payload", "req-1"))
     assert healthy_result is not None
     assert agent_module.circuit_breakers.get("healthy-agent").state.value == "CLOSED"
+
+
+def test_delegation_attaches_bearer_auth_header(monkeypatch):
+    """Fase 9 (§7/§56): every outgoing A2A call must carry this Planner's
+    own credential, so a specialist running with AUTH_MODE != "none" can
+    actually accept it (see test_a2a_route_auth.py for the receiving
+    side, which is what would reject an unauthenticated call in
+    production defaults).
+    """
+    captured_headers: dict = {}
+
+    async def capturing_send_text(url, text, context_id=None, headers=None):
+        captured_headers.update(headers or {})
+        return _completed_task({"status": "SUCCESS", "options": [], "notes": ""})
+
+    monkeypatch.setattr(agent_module.a2a_client, "send_text", capturing_send_text)
+
+    agent = {"id": "flight-agent", "url": "http://flight:8002"}
+    result = asyncio.run(agent_module._delegate_to_agent(agent, "payload", "req-1"))
+
+    assert result is not None
+    assert captured_headers.get("Authorization") == f"Bearer {agent_module.settings.dev_agent_token}"

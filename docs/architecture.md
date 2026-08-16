@@ -128,13 +128,45 @@ Componentes:
 
 ## Ainda não implementado
 
-- Segurança JWT/OAuth (Fase 9) — hoje `AUTH_MODE=dev`, sem token real.
+- IdP OAuth2/OIDC externo real (client credentials, JWKS, chave
+  assimétrica) — `AUTH_MODE=jwt` hoje usa HS256 com segredo
+  compartilhado, escopo deliberado do "spike" pedido pelo §56 (ver
+  ADR-015).
 - Chaos test real (derrubar/atrasar containers Docker de propósito) para
   os cenários CT-R01..CT-R06 do §35 — cobertos hoje no nível de
   unidade/integração do Planner (ver "Resiliência (Fase 8)" abaixo), não
   como teste de infraestrutura de fato.
 - AWS Full (`AgentCore Runtime → Strands → Bedrock`, §5.6) — fase futura,
   fora do escopo desta milestone (§38 "AgentCore — fase futura").
+
+## Segurança (Fase 9)
+
+§7/§56 "M6 Security": autenticação service-to-service na rota `/a2a` e
+identidade de agente. Detalhes completos em
+`docs/adr/ADR-015-security-jwt-agent-identity-oidc-spike.md`; resumo:
+
+- **`AUTH_MODE`** (`app/auth.py` em cada agente Python, `src/a2a/auth.ts`
+  no hotel-agent TypeScript): `"dev"` (default) — bearer token estático
+  compartilhado (`DEV_AGENT_TOKEN`); `"jwt"` — JWT HS256 assinado com
+  `JWT_SECRET`, claim `sub` = `service_name` de quem chama, dando
+  identidade real ao chamador; `"none"` — sem verificação, só para
+  debug local isolado, nunca default.
+- Só `POST /a2a` é protegido. `/health`, `/ready` e
+  `/.well-known/agent-card.json` continuam abertos em todos os agentes —
+  Agent Card discovery (§9) e health checks precisam funcionar antes de
+  qualquer chamador ter um token.
+- `verify_request`/`mint_outgoing_token` (Python) e
+  `verifyRequest`/`mintOutgoingToken` (TypeScript) são um par simétrico:
+  quem gera o token de saída (Planner delegando a um especialista) usa
+  exatamente a mesma lógica de quem valida o token de entrada.
+- Um 401 é um `HTTPStatusError` `< 500` — pela regra já estabelecida na
+  Fase 8 (ADR-014), **nunca é retryable**; um agente sem credencial
+  válida degrada como qualquer outro 4xx (`UNAVAILABLE`/`UNKNOWN`) e
+  conta como falha para o circuit breaker do seu `agent_id`, sem
+  nenhuma mudança necessária no cliente A2A.
+- `agent-registry` continua sem autenticação (decisão explicitada na
+  ADR-015) — só expõe metadados públicos de Agent Card, mesma natureza
+  de `/.well-known/agent-card.json`.
 
 ## Resiliência (Fase 8)
 

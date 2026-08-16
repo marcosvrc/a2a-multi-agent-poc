@@ -123,6 +123,43 @@ Além dos CT-R0N, testes dedicados aos dois mecanismos em si:
   retry do lado MCP (`_with_retry`/`call_mcp_tool`), duplicado
   verbatim em `flight-openai`, `budget-crewai` e `aws-strands`.
 
+## Segurança
+
+Fase 9 (§7/§56, ver `docs/adr/ADR-015-security-jwt-agent-identity-oidc-spike.md`):
+auth na rota `/a2a` de todo agente (6 Python + hotel-agent TypeScript).
+
+- `agents/planner-adk/tests/test_auth.py` — 15 testes unitários de
+  `verify_request`/`mint_outgoing_token` nos três modos (`dev`/`jwt`/
+  `none`), incluindo JWT expirado, segredo errado, e round-trip
+  mint→verify. Implementado uma vez em `planner-adk` como referência
+  canônica — mesmo padrão já usado para `test_mcp_client.py` na Fase 8.
+- `agents/planner-adk/tests/test_a2a_route_auth.py` — 5 testes de
+  integração contra o FastAPI `app` real (não mockado): `AUTH_MODE`
+  default é `"dev"`; `/a2a` rejeita token ausente/errado com 401; `/a2a`
+  aceita o token correto; `/health`/`/ready`/agent-card continuam
+  abertos sem qualquer header.
+- `agents/planner-adk/tests/test_agent.py::test_delegation_attaches_bearer_auth_header` —
+  confirma que `_delegate_to_agent` de fato anexa
+  `Authorization: Bearer <token>` em toda chamada de saída.
+- `agents/{mock-specialist,flight-openai,activity-beeai,budget-crewai,aws-strands}/tests/test_agent.py` —
+  suítes existentes atualizadas para autenticar (`TestClient(app,
+  headers={"Authorization": f"Bearer {settings.dev_agent_token}"})`),
+  sem suíte de auth dedicada própria (mesma decisão de "implementar uma
+  vez, propagar o wiring" já usada para o retry MCP na Fase 8).
+- `agents/hotel-langgraph/test/auth.test.ts` — 11 testes cobrindo os
+  três modos em TypeScript (`verifyRequest`/`mintOutgoingToken`), único
+  agente sem um par Python para servir de referência.
+- Contagem de testes por agente após esta fase: `planner-adk` 59,
+  `mock-specialist` 8, `flight-openai` 5, `activity-beeai` 13,
+  `budget-crewai` 17, `aws-strands` 9, `hotel-langgraph` 21 (10
+  pré-existentes + 11 de auth).
+- Não foi montada uma suíte live completa de `AUTH_MODE=jwt` contra a
+  stack Docker de 13 serviços nesta fase — coberto no nível de
+  unidade/integração (acima) mais o round-trip mint→verify; validação
+  live do modo `jwt` fim-a-fim permanece um gap conhecido, coerente com
+  a natureza desta POC (mesma ressalva já feita para chaos test real na
+  Fase 8).
+
 ## CI
 
 Pipeline mínima ainda não configurada nesta milestone (ver §39 do spec

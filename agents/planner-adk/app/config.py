@@ -23,6 +23,13 @@ class Settings:
         os.getenv("CIRCUIT_BREAKER_RESET_TIMEOUT_SECONDS", "30")
     )
     aws_agent_enabled: bool = os.getenv("AWS_AGENT_ENABLED", "false").lower() == "true"
+    # Fase 9 (§7/§56 "M6 Security"): see app/auth.py for what each mode
+    # does. "dev" (spec default) requires DEV_AGENT_TOKEN on every /a2a
+    # call; "jwt" requires a valid HS256 JWT instead and carries this
+    # agent's own identity as the `sub` claim on outgoing calls.
+    auth_mode: str = os.getenv("AUTH_MODE", "dev")
+    dev_agent_token: str = os.getenv("DEV_AGENT_TOKEN", "local-development-only")
+    jwt_secret: str = os.getenv("JWT_SECRET", "local-development-only-change-me")
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
 

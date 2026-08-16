@@ -24,6 +24,12 @@ class Settings:
     # Optional: only used by the CrewAI-driven path (see app/agent.py and
     # docs/adr/ADR-012-budget-agent-crewai-optional.md).
     crewai_llm_model: str = os.getenv("CREWAI_LLM_MODEL", "")
+    # Fase 9 (§7/§56 "M6 Security"): see app/auth.py for what each
+    # mode does. "dev" (spec default) requires DEV_AGENT_TOKEN on every
+    # /a2a call; "jwt" requires a valid HS256 JWT instead.
+    auth_mode: str = os.getenv("AUTH_MODE", "dev")
+    dev_agent_token: str = os.getenv("DEV_AGENT_TOKEN", "local-development-only")
+    jwt_secret: str = os.getenv("JWT_SECRET", "local-development-only-change-me")
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
 

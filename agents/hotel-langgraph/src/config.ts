@@ -8,4 +8,10 @@ export const settings = {
   otelExporterOtlpEndpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "http://otel-collector:4318",
   otelServiceNamespace: process.env.OTEL_SERVICE_NAMESPACE ?? "a2a-poc",
   otelSdkDisabled: (process.env.OTEL_SDK_DISABLED ?? "false").toLowerCase() === "true",
+  // Fase 9 (§7/§56 "M6 Security"): see src/a2a/auth.ts for what each mode
+  // does. "dev" (spec default) requires DEV_AGENT_TOKEN on every /a2a
+  // call; "jwt" requires a valid HS256 JWT instead.
+  authMode: process.env.AUTH_MODE ?? "dev",
+  devAgentToken: process.env.DEV_AGENT_TOKEN ?? "local-development-only",
+  jwtSecret: process.env.JWT_SECRET ?? "local-development-only-change-me",
 };

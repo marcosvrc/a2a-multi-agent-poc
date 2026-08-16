@@ -25,6 +25,12 @@ class Settings:
     ollama_model_id: str = os.getenv("OLLAMA_MODEL_ID", "llama3.1")
     bedrock_model_id: str = os.getenv("BEDROCK_MODEL_ID", "us.amazon.nova-lite-v1:0")
     aws_region: str = os.getenv("AWS_REGION", "us-east-1")
+    # Fase 9 (§7/§56 "M6 Security"): see app/auth.py for what each
+    # mode does. "dev" (spec default) requires DEV_AGENT_TOKEN on every
+    # /a2a call; "jwt" requires a valid HS256 JWT instead.
+    auth_mode: str = os.getenv("AUTH_MODE", "dev")
+    dev_agent_token: str = os.getenv("DEV_AGENT_TOKEN", "local-development-only")
+    jwt_secret: str = os.getenv("JWT_SECRET", "local-development-only-change-me")
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
 

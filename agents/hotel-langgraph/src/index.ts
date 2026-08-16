@@ -15,7 +15,13 @@ const card = buildAgentCard(settings.publicUrl);
 const taskStore = new InMemoryTaskStore();
 
 app.use(buildAgentCardRouter(card));
-app.use(buildJsonRpcRouter(handleMessage, taskStore));
+app.use(
+  buildJsonRpcRouter(handleMessage, taskStore, {
+    authMode: settings.authMode,
+    devToken: settings.devAgentToken,
+    jwtSecret: settings.jwtSecret,
+  }),
+);
 
 app.get("/health", (_req, res) => {
   res.json({ status: "UP" });

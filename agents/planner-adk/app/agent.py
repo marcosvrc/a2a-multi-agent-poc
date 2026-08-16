@@ -57,6 +57,7 @@ from opentelemetry import trace
 
 from .a2a.client import A2AClient, A2AClientError
 from .a2a.models import Message, Task, TaskStatus, TextPart
+from .auth import mint_outgoing_token
 from .config import settings
 from .registry_client import RegistryClient
 from .resilience import CircuitBreakerRegistry
@@ -161,6 +162,23 @@ async def _agents_by_skill(agents: list[dict[str, Any]]) -> dict[str, dict[str, 
     return result
 
 
+def _outgoing_auth_headers() -> dict[str, str]:
+    """§7/§56 (Fase 9): every A2A call this Planner makes carries its own
+    identity as a bearer token — `mint_outgoing_token` mirrors whatever
+    `AUTH_MODE` this Planner itself runs in (dev shared-secret vs JWT with
+    `sub=<this agent's own service_name>`, see app/auth.py). Not applied
+    to Agent Card fetches (`_fetch_agent_card`) — that route is
+    intentionally open (§9 discovery must work before any token exists).
+    """
+    token = mint_outgoing_token(
+        auth_mode=settings.auth_mode,
+        dev_token=settings.dev_agent_token,
+        jwt_secret=settings.jwt_secret,
+        agent_id=settings.service_name,
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
 async def _delegate_to_agent(agent: dict[str, Any], text: str, context_id: str) -> dict[str, Any] | None:
     agent_id = agent.get("id", "unknown")
     breaker = circuit_breakers.get(agent_id)
@@ -177,7 +195,9 @@ async def _delegate_to_agent(agent: dict[str, Any], text: str, context_id: str) 
     span_name = f"a2a.{agent_id}"
     with tracer.start_as_current_span(span_name):
         try:
-            result = await a2a_client.send_text(agent["url"], text, context_id=context_id)
+            result = await a2a_client.send_text(
+                agent["url"], text, context_id=context_id, headers=_outgoing_auth_headers()
+            )
         except (A2AClientError, Exception) as exc:  # noqa: BLE001
             logger.warning("delegation to %s failed: %s", agent_id, exc)
             breaker.record_failure()

@@ -39,6 +39,24 @@ Serviços expostos:
 - Ollama (perfil `aws`): http://localhost:11434
 - Jaeger UI: http://localhost:16686
 
+## Autenticação (Fase 9)
+
+Todo `POST /a2a` exige um bearer token a partir desta fase —
+`/health`, `/ready` e `/.well-known/agent-card.json` continuam abertos.
+Com `AUTH_MODE=dev` (padrão, também o de `.env.example`), qualquer
+`curl` manual contra `/a2a` precisa do header:
+
+```bash
+curl -s http://localhost:8002/a2a \
+  -H "Authorization: Bearer local-development-only" \
+  -H "content-type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"1","method":"message/send","params":{"message":{"parts":[{"text":"..."}]}}}'
+```
+
+Sem o header (ou com o token errado), a resposta é `401`. Ver
+`docs/adr/ADR-015-security-jwt-agent-identity-oidc-spike.md` para os
+três modos (`dev`/`jwt`/`none`) e por que só `/a2a` é protegido.
+
 ## Rodando um agente fora do Docker
 
 ```bash

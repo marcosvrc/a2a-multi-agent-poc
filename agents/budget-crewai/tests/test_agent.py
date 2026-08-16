@@ -5,9 +5,14 @@ from fastapi.testclient import TestClient
 
 from app import agent as agent_module
 from app import mcp_client as agent_mcp_client
+from app.config import settings
 from app.main import app
 
-client = TestClient(app)
+# Fase 9 (§7/§56): the /a2a route now requires a bearer token by
+# default (AUTH_MODE=dev) — every test in this file authenticates as
+# whatever holds the shared DEV_AGENT_TOKEN, same as any real caller
+# would in the default deployment.
+client = TestClient(app, headers={"Authorization": f"Bearer {settings.dev_agent_token}"})
 
 MOCK_FLIGHT = {
     "status": "SUCCESS",
