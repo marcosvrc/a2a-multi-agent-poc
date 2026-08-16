@@ -1,5 +1,26 @@
 # a2a-multi-agent-poc
 
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-22-5FA04E?logo=nodedotjs&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)
+![Pydantic](https://img.shields.io/badge/Pydantic-v2-E92063?logo=pydantic&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-tracing-000000?logo=opentelemetry&logoColor=white)
+![Jaeger](https://img.shields.io/badge/Jaeger-UI-66CFE3)
+![JWT](https://img.shields.io/badge/Auth-JWT%20HS256-000000?logo=jsonwebtokens&logoColor=white)
+![pytest](https://img.shields.io/badge/tested%20with-pytest-0A9EDC?logo=pytest&logoColor=white)
+
+![A2A](https://img.shields.io/badge/protocolo-A2A%20(JSON--RPC%202.0)-6C47FF)
+![MCP](https://img.shields.io/badge/protocolo-MCP%20(Streamable%20HTTP)-FF6B35)
+![Google ADK](https://img.shields.io/badge/Google%20ADK-planner-4285F4?logo=google&logoColor=white)
+![OpenAI Agents SDK](https://img.shields.io/badge/OpenAI%20Agents%20SDK-flight-412991?logo=openai&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-hotel-1C3C3C?logo=langchain&logoColor=white)
+![BeeAI](https://img.shields.io/badge/BeeAI%20Framework-activity-FFD21E)
+![CrewAI](https://img.shields.io/badge/CrewAI-budget-FF5A50)
+![AWS Strands](https://img.shields.io/badge/AWS%20Strands-enrichment-FF9900?logo=amazonwebservices&logoColor=white)
+![Ollama](https://img.shields.io/badge/Ollama-opcional-000000?logo=ollama&logoColor=white)
+
 **POC multiagente distribuída e poliglota**: seis agentes construídos em
 frameworks e linguagens diferentes, interoperando exclusivamente por meio
 de dois protocolos abertos — **A2A** (Agent2Agent, agente ↔ agente) e
