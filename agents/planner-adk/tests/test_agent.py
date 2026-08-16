@@ -490,3 +490,305 @@ def test_travel_request_rejects_invalid_date_range():
     }
     resp = client.post("/v1/travel-requests", json=payload)
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Fase 8 (§27/§35 "Testes de resiliência"): CT-R01..CT-R06, plus the
+# circuit breaker wiring itself. Retry-with-backoff's own control flow
+# (attempt counts, 4xx vs 5xx, JSON-RPC errors never retried, exponential
+# delay) is unit-tested in isolation in test_a2a_client.py; the tests
+# below exercise it at the Planner level, in terms the spec actually
+# states each CT-R0x by (overall status, per-specialist status).
+# ---------------------------------------------------------------------------
+
+_TRAVEL_PAYLOAD = {
+    "origin": "Sao Paulo",
+    "destination": "Florianopolis",
+    "start_date": "2026-09-20",
+    "end_date": "2026-09-24",
+    "travelers": 2,
+    "budget": 8000,
+    "currency": "BRL",
+    "preferences": ["beach"],
+}
+
+
+def test_ct_r01_flight_unavailable_yields_partial(monkeypatch):
+    """CT-R01: Flight indisponível -> PARTIAL."""
+    monkeypatch.setattr(agent_module.registry_client, "list_agents", AsyncMock(return_value=_FOUR_SPECIALIST_AGENTS))
+    _mock_agent_cards(monkeypatch, _FOUR_SPECIALIST_CARDS)
+
+    hotel_result = {"status": "SUCCESS", "options": [{"id": "HT-1", "price_per_night": 300}], "notes": ""}
+    activity_result = {"status": "SUCCESS", "days": [], "notes": ""}
+    budget_result = {"status": "SUCCESS", "budget_status": "WITHIN_BUDGET", "total": 3000, "limit": 8000, "remaining": 5000, "notes": ""}
+
+    async def fake_send_text(url, text, context_id=None):
+        if "flight" in url:
+            raise agent_module.A2AClientError("flight-agent unreachable")
+        if "hotel" in url:
+            return _completed_task(hotel_result)
+        if "activity" in url:
+            return _completed_task(activity_result)
+        if "budget" in url:
+            return _completed_task(budget_result)
+        raise AssertionError(f"unexpected url: {url}")
+
+    monkeypatch.setattr(agent_module.a2a_client, "send_text", fake_send_text)
+
+    resp = client.post("/v1/travel-requests", json=_TRAVEL_PAYLOAD)
+    body = resp.json()
+    assert body["status"] == "PARTIAL"
+    assert body["flight"]["status"] == "UNAVAILABLE"
+    assert body["hotel"]["status"] == "SUCCESS"
+
+
+def test_ct_r02_hotel_persistent_timeout_yields_partial(monkeypatch):
+    """CT-R02: Hotel retorna timeout -> retry; timeout; parcial.
+
+    Exercises the real A2AClient (not a monkeypatched send_text) so the
+    retry-with-backoff path in app/a2a/client.py actually runs: httpx
+    itself is faked to raise httpx.TimeoutException on every hotel-agent
+    call (and on every attempt, since the timeout is persistent — CT-R02
+    describes a hotel-agent that never recovers within this request), and
+    to succeed immediately for every other agent. Asserts both the
+    retries actually happened (call count > 1) and the final outcome.
+    """
+    import httpx
+
+    from tests.test_a2a_client import _FakeAsyncClient, _FakeResponse
+
+    monkeypatch.setattr(
+        agent_module, "settings", dataclasses.replace(agent_module.settings, max_retries=2, request_timeout_seconds=1)
+    )
+    # a2a_client was constructed at module import time with the *original*
+    # settings; rebuild it so this test's lower retry_backoff actually
+    # takes effect (keeps the test fast) without waiting out real
+    # exponential delays.
+    monkeypatch.setattr(
+        agent_module,
+        "a2a_client",
+        agent_module.A2AClient(timeout_seconds=1, retry_attempts=2, retry_backoff_base_seconds=0.01),
+    )
+    monkeypatch.setattr(agent_module.registry_client, "list_agents", AsyncMock(return_value=_FOUR_SPECIALIST_AGENTS))
+
+    flight_result = {"status": "SUCCESS", "options": [{"id": "FL-1", "price": 1000}], "recommended_option_id": "FL-1", "notes": ""}
+    activity_result = {"status": "SUCCESS", "days": [], "notes": ""}
+    budget_result = {"status": "SUCCESS", "budget_status": "WITHIN_BUDGET", "total": 3000, "limit": 8000, "remaining": 5000, "notes": ""}
+
+    def _card_response(name: str, url: str, skill_id: str) -> "_FakeResponse":
+        card = _card(name, url, skill_id).model_dump(mode="json")
+        return _FakeResponse(200, card)
+
+    def _result_response(result: dict) -> "_FakeResponse":
+        return _FakeResponse(200, {"jsonrpc": "2.0", "id": "1", "result": _completed_task(result)})
+
+    calls: list[tuple[str, str]] = []
+
+    def _handler(method: str, url: str):
+        if url.endswith("/.well-known/agent-card.json"):
+            if "flight" in url:
+                return _card_response("flight-agent", "http://flight:8002", "search_flights")
+            if "hotel" in url:
+                return _card_response("hotel-agent", "http://hotel:8003", "search_hotels")
+            if "activity" in url:
+                return _card_response("activity-agent", "http://activity:8004", "plan_activities")
+            if "budget" in url:
+                return _card_response("budget-agent", "http://budget:8005", "calculate_budget")
+            raise AssertionError(f"unexpected agent card url: {url}")
+        if "hotel" in url:
+            return httpx.TimeoutException("hotel-agent timed out")
+        if "flight" in url:
+            return _result_response(flight_result)
+        if "activity" in url:
+            return _result_response(activity_result)
+        if "budget" in url:
+            return _result_response(budget_result)
+        raise AssertionError(f"unexpected url: {url}")
+
+    class _RoutingAsyncClient(_FakeAsyncClient):
+        def __init__(self, **kwargs) -> None:
+            super().__init__([], calls, **kwargs)
+
+        async def request(self, method: str, url: str, **kwargs):
+            calls.append((method, url))
+            outcome = _handler(method, url)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+    monkeypatch.setattr("app.a2a.client.httpx.AsyncClient", lambda **kwargs: _RoutingAsyncClient(**kwargs))
+
+    resp = client.post("/v1/travel-requests", json=_TRAVEL_PAYLOAD)
+    body = resp.json()
+
+    assert body["status"] == "PARTIAL"
+    assert body["hotel"]["status"] == "UNAVAILABLE"
+    assert body["flight"]["status"] == "SUCCESS"
+    hotel_attempts = [c for c in calls if "hotel" in c[1] and c[1].endswith("/a2a")]
+    assert len(hotel_attempts) == 3  # initial attempt + 2 retries, per max_retries=2
+
+
+def test_ct_r04_aws_agent_disabled_yields_completed(monkeypatch):
+    """CT-R04: AWS Agent desligado -> COMPLETED. Same scenario already
+    covered by test_enrichment_skipped_when_aws_agent_disabled above;
+    named here too so the CT-R0x -> test mapping from docs/testing.md is
+    a straightforward 1:1 lookup.
+    """
+    monkeypatch.setattr(agent_module.registry_client, "list_agents", AsyncMock(return_value=_FOUR_SPECIALIST_AGENTS))
+    _mock_agent_cards(monkeypatch, _FOUR_SPECIALIST_CARDS)
+
+    flight_result = {"status": "SUCCESS", "options": [{"id": "FL-1", "price": 1000}], "recommended_option_id": "FL-1", "notes": ""}
+    hotel_result = {"status": "SUCCESS", "options": [{"id": "HT-1", "price_per_night": 300}], "notes": ""}
+    activity_result = {"status": "SUCCESS", "days": [], "notes": ""}
+    budget_result = {"status": "SUCCESS", "budget_status": "WITHIN_BUDGET", "total": 3000, "limit": 8000, "remaining": 5000, "notes": ""}
+
+    async def fake_send_text(url, text, context_id=None):
+        if "flight" in url:
+            return _completed_task(flight_result)
+        if "hotel" in url:
+            return _completed_task(hotel_result)
+        if "activity" in url:
+            return _completed_task(activity_result)
+        if "budget" in url:
+            return _completed_task(budget_result)
+        raise AssertionError(f"unexpected url: {url}")
+
+    monkeypatch.setattr(agent_module.a2a_client, "send_text", fake_send_text)
+
+    resp = client.post("/v1/travel-requests", json=_TRAVEL_PAYLOAD)
+    body = resp.json()
+    assert body["status"] == "COMPLETED"
+    assert body["enrichment"]["status"] == "SKIPPED"
+
+
+def test_ct_r05_aws_agent_raises_error_yields_completed_with_enrichment_unavailable(monkeypatch):
+    """CT-R05: AWS Agent lança erro -> COMPLETED, enrichment.status=UNAVAILABLE.
+
+    Unlike test_enrichment_unavailable_when_aws_enabled_but_no_agent_registered
+    (Fase 7 — the agent simply isn't registered), this simulates the agent
+    being registered and discoverable but *erroring* when actually called.
+    """
+    monkeypatch.setattr(
+        agent_module, "settings", dataclasses.replace(agent_module.settings, aws_agent_enabled=True)
+    )
+    agents = [*_FOUR_SPECIALIST_AGENTS, {"id": "aws-enrichment-agent", "url": "http://enrichment:8006"}]
+    cards = {
+        **_FOUR_SPECIALIST_CARDS,
+        "http://enrichment:8006": _card("aws-enrichment-agent", "http://enrichment:8006", "enrich_destination"),
+    }
+    monkeypatch.setattr(agent_module.registry_client, "list_agents", AsyncMock(return_value=agents))
+    _mock_agent_cards(monkeypatch, cards)
+
+    flight_result = {"status": "SUCCESS", "options": [{"id": "FL-1", "price": 1000}], "recommended_option_id": "FL-1", "notes": ""}
+    hotel_result = {"status": "SUCCESS", "options": [{"id": "HT-1", "price_per_night": 300}], "notes": ""}
+    activity_result = {"status": "SUCCESS", "days": [], "notes": ""}
+    budget_result = {"status": "SUCCESS", "budget_status": "WITHIN_BUDGET", "total": 3000, "limit": 8000, "remaining": 5000, "notes": ""}
+
+    async def fake_send_text(url, text, context_id=None):
+        if "flight" in url:
+            return _completed_task(flight_result)
+        if "hotel" in url:
+            return _completed_task(hotel_result)
+        if "activity" in url:
+            return _completed_task(activity_result)
+        if "budget" in url:
+            return _completed_task(budget_result)
+        if "enrichment" in url:
+            raise agent_module.A2AClientError("aws-enrichment-agent crashed")
+        raise AssertionError(f"unexpected url: {url}")
+
+    monkeypatch.setattr(agent_module.a2a_client, "send_text", fake_send_text)
+
+    resp = client.post("/v1/travel-requests", json=_TRAVEL_PAYLOAD)
+    body = resp.json()
+    assert body["status"] == "COMPLETED"
+    assert body["enrichment"]["status"] == "UNAVAILABLE"
+
+
+def test_ct_r06_budget_failure_yields_partial_with_budget_status_unknown(monkeypatch):
+    """CT-R06: Budget falha -> PARTIAL, budget.status=UNKNOWN."""
+    monkeypatch.setattr(agent_module.registry_client, "list_agents", AsyncMock(return_value=_FOUR_SPECIALIST_AGENTS))
+    _mock_agent_cards(monkeypatch, _FOUR_SPECIALIST_CARDS)
+
+    flight_result = {"status": "SUCCESS", "options": [{"id": "FL-1", "price": 1000}], "recommended_option_id": "FL-1", "notes": ""}
+    hotel_result = {"status": "SUCCESS", "options": [{"id": "HT-1", "price_per_night": 300}], "notes": ""}
+    activity_result = {"status": "SUCCESS", "days": [], "notes": ""}
+
+    async def fake_send_text(url, text, context_id=None):
+        if "flight" in url:
+            return _completed_task(flight_result)
+        if "hotel" in url:
+            return _completed_task(hotel_result)
+        if "activity" in url:
+            return _completed_task(activity_result)
+        if "budget" in url:
+            raise agent_module.A2AClientError("budget-agent crashed")
+        raise AssertionError(f"unexpected url: {url}")
+
+    monkeypatch.setattr(agent_module.a2a_client, "send_text", fake_send_text)
+
+    resp = client.post("/v1/travel-requests", json=_TRAVEL_PAYLOAD)
+    body = resp.json()
+    assert body["status"] == "PARTIAL"
+    # The distinguishing assertion vs. CT-R01/CT-R05: Budget's own
+    # "status" field (not just budget_status) is UNKNOWN, not UNAVAILABLE
+    # — see _parse_specialist_result's unavailable_status param.
+    assert body["budget"]["status"] == "UNKNOWN"
+    assert body["budget"]["budget_status"] == "UNKNOWN"
+
+
+def test_circuit_breaker_opens_after_threshold_and_skips_further_delegation(monkeypatch):
+    """Fase 8 (§27/§35): after `circuit_breaker_failure_threshold`
+    consecutive failed delegations to the same agent, further delegation
+    attempts must be short-circuited (no send_text call at all) until the
+    cooldown elapses — not just individually degrade to UNAVAILABLE every
+    time, which would mean every subsequent request still pays for a full
+    timeout against an agent already known to be down.
+    """
+    from app.resilience import CircuitBreakerRegistry
+
+    agent_module.circuit_breakers = CircuitBreakerRegistry(failure_threshold=2, reset_timeout_seconds=30)
+
+    call_count = 0
+
+    async def failing_send_text(url, text, context_id=None):
+        nonlocal call_count
+        call_count += 1
+        raise agent_module.A2AClientError("boom")
+
+    monkeypatch.setattr(agent_module.a2a_client, "send_text", failing_send_text)
+
+    agent = {"id": "flaky-agent", "url": "http://flaky:9999"}
+    results = [asyncio.run(agent_module._delegate_to_agent(agent, "payload", "req-1")) for _ in range(4)]
+
+    assert all(r is None for r in results)
+    # Only the first 2 calls actually reached send_text (threshold=2);
+    # the 3rd and 4th were short-circuited by the OPEN breaker.
+    assert call_count == 2
+    assert agent_module.circuit_breakers.get("flaky-agent").state.value == "OPEN"
+
+
+def test_circuit_breaker_is_per_agent_not_global(monkeypatch):
+    """A breaker OPENing for one agent must never affect delegation to a
+    different agent — each agent id gets its own independent breaker.
+    """
+    from app.resilience import CircuitBreakerRegistry
+
+    agent_module.circuit_breakers = CircuitBreakerRegistry(failure_threshold=1, reset_timeout_seconds=30)
+
+    async def routed_send_text(url, text, context_id=None):
+        if "flaky" in url:
+            raise agent_module.A2AClientError("boom")
+        return _completed_task({"status": "SUCCESS", "options": [], "notes": ""})
+
+    monkeypatch.setattr(agent_module.a2a_client, "send_text", routed_send_text)
+
+    flaky_agent = {"id": "flaky-agent", "url": "http://flaky:9999"}
+    healthy_agent = {"id": "healthy-agent", "url": "http://healthy:9998"}
+
+    assert asyncio.run(agent_module._delegate_to_agent(flaky_agent, "payload", "req-1")) is None
+    assert agent_module.circuit_breakers.get("flaky-agent").state.value == "OPEN"
+
+    healthy_result = asyncio.run(agent_module._delegate_to_agent(healthy_agent, "payload", "req-1"))
+    assert healthy_result is not None
+    assert agent_module.circuit_breakers.get("healthy-agent").state.value == "CLOSED"

@@ -74,11 +74,54 @@ completo (`graph.test.ts`), incluindo o caso de MCP indisponível.
 
 ## Resiliência
 
-A suíte formal (CT-R01..CT-R06 do §35, com derrubada/atraso proposital de
-serviços) ainda não foi montada (Fase 8). Um caso já está coberto como
-efeito colateral da implementação do Activity Agent: CT-R03 ("MCP Weather
-falha → Activity continua sem clima") é testado em
-`agents/activity-beeai/tests/test_agent.py::test_weather_unavailable_still_returns_success`.
+Fase 8 (§27/§35, ver `docs/adr/ADR-014-resilience-retry-circuit-breaker.md`):
+retry com backoff exponencial (A2A e MCP) e circuit breaker por agente
+(A2A). Os seis cenários CT-R01..CT-R06 do §35 estão todos cobertos por
+teste unit/integration do Planner — não como chaos test real contra a
+stack Docker (derrubar/atrasar containers de propósito), que permanece
+um gap conhecido desta POC:
+
+- **CT-R01** ("Flight indisponível → PARTIAL"):
+  `agents/planner-adk/tests/test_agent.py::test_ct_r01_flight_unavailable_yields_partial`.
+- **CT-R02** ("Hotel retorna timeout → retry; timeout; parcial"):
+  `test_ct_r02_hotel_persistent_timeout_yields_partial` — o único CT-R0N
+  que passa pelo `A2AClient` real (não um `send_text` mockado): faz o
+  `httpx` subjacente lançar `TimeoutException` em toda tentativa contra
+  o hotel-agent, e confirma tanto o número de tentativas (retry
+  realmente aconteceu) quanto o resultado final (`PARTIAL`,
+  `hotel.status = UNAVAILABLE`).
+- **CT-R03** ("MCP Weather falha → Activity continua sem clima"): já
+  coberto desde a Fase 4 em
+  `agents/activity-beeai/tests/test_agent.py::test_weather_unavailable_still_returns_success`
+  — inalterado por esta fase (retry no MCP client só atrasa a
+  confirmação da falha via backoff, não muda o comportamento de
+  degradação por-dia).
+- **CT-R04** ("AWS Agent desligado → COMPLETED"):
+  `test_ct_r04_aws_agent_disabled_yields_completed` (mesmo cenário de
+  `test_enrichment_skipped_when_aws_agent_disabled`, Fase 7 — nomeado
+  também com o rótulo CT-R0N para mapeamento 1:1 com o spec).
+- **CT-R05** ("AWS Agent lança erro → COMPLETED,
+  enrichment.status=UNAVAILABLE"):
+  `test_ct_r05_aws_agent_raises_error_yields_completed_with_enrichment_unavailable`.
+- **CT-R06** ("Budget falha → PARTIAL, budget.status=UNKNOWN"):
+  `test_ct_r06_budget_failure_yields_partial_with_budget_status_unknown`.
+
+Além dos CT-R0N, testes dedicados aos dois mecanismos em si:
+
+- `agents/planner-adk/tests/test_resilience.py` — a máquina de estados
+  do `CircuitBreaker` isolada (CLOSED → OPEN → HALF_OPEN → CLOSED/OPEN),
+  sem depender do Planner.
+- `agents/planner-adk/tests/test_a2a_client.py` — o retry do
+  `A2AClient` isolado: sucesso sem retry, retry em timeout/5xx, sem
+  retry em 4xx, sem retry em erro JSON-RPC (§27 "não repetir chamadas
+  não idempotentes sem controle"), esgotamento de tentativas, backoff
+  exponencial.
+- `agents/planner-adk/tests/test_agent.py::test_circuit_breaker_opens_after_threshold_and_skips_further_delegation`
+  e `test_circuit_breaker_is_per_agent_not_global` — a integração do
+  circuit breaker com `_delegate_to_agent`.
+- `agents/activity-beeai/tests/test_mcp_client.py` — o mesmo padrão de
+  retry do lado MCP (`_with_retry`/`call_mcp_tool`), duplicado
+  verbatim em `flight-openai`, `budget-crewai` e `aws-strands`.
 
 ## CI
 

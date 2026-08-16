@@ -6,7 +6,7 @@ interoperando por **A2A** (Agent-to-Agent) e consumindo ferramentas por
 
 Especificação completa: [`a2a-multi-agent-poc-PROJECT_SPEC.md`](./a2a-multi-agent-poc-PROJECT_SPEC.md).
 
-## Status: Fase 7 — AWS Enrichment Agent (Strands, opcional)
+## Status: Fase 8 — Resiliência (retry + circuit breaker)
 
 Implementado até aqui (ver `docs/architecture.md` para detalhes):
 
@@ -16,7 +16,10 @@ Implementado até aqui (ver `docs/architecture.md` para detalhes):
   de resposta com as regras de degradação do spec. Flight/Hotel/Activity
   agora são delegados em paralelo (`asyncio.gather`, Fase 6/§43) — só
   Budget continua sequenciado depois deles, já que precisa dos resultados
-  dos outros três (§5.5).
+  dos outros três (§5.5). Chamadas A2A agora retentam falhas transitórias
+  com backoff exponencial e são protegidas por um circuit breaker por
+  agente (Fase 8/§27, ver ADR-014) — um especialista já sabidamente fora
+  do ar deixa de pagar timeout completo em toda requisição nova.
 - **Flight Agent** (`agents/flight-openai`, OpenAI Agents SDK / Python):
   busca e ranqueia voos via `mcp-flight-search`, skill A2A `search_flights`.
   Caminho determinístico por padrão (grátis); caminho guiado por LLM
@@ -139,7 +142,5 @@ Mais detalhes em `docs/local-development.md` e `docs/testing.md`.
 
 ## Próximo passo recomendado
 
-Fase 8 do spec (§43): resiliência — timeouts (parcialmente já presentes
-via `httpx`/`fetch`/clientes MCP), retries e circuit breaker de verdade,
-degradação graciosa mais explícita nos pontos que hoje só logam um
-warning e seguem.
+Fase 9 do spec (§43): segurança — JWT/OAuth/OIDC e agent identity, no
+lugar do `AUTH_MODE=dev` atual (sem token real).

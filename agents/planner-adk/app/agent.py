@@ -30,7 +30,17 @@ Não marcar o fluxo como falha" — this is why `enrichment` stays excluded
 from the COMPLETED/PARTIAL/FAILED calculation below, unlike the four
 core specialists).
 
-Real specialists are wired in incrementally per §43 Fase 8-9, without
+Fase 8 scope (§27/§35 "Resiliência"): A2A calls now retry transient
+transport failures with exponential backoff (`A2AClient`, see
+app/a2a/client.py) and are additionally guarded by a per-agent circuit
+breaker (`app/resilience.py`) — a specialist that keeps failing stops
+being retried on every single request once its breaker OPENs, instead
+of costing a full timeout each time. Budget specifically reports
+`status=UNKNOWN` (not `UNAVAILABLE`) on failure, per §35 CT-R06 — every
+other specialist's failure/unreachable case still reports
+`UNAVAILABLE`, matching CT-R01/CT-R05.
+
+Real specialists are wired in incrementally per §43 Fase 9, without
 changing this module's public contract.
 """
 from __future__ import annotations
@@ -49,6 +59,7 @@ from .a2a.client import A2AClient, A2AClientError
 from .a2a.models import Message, Task, TaskStatus, TextPart
 from .config import settings
 from .registry_client import RegistryClient
+from .resilience import CircuitBreakerRegistry
 from .schemas import (
     ActivityResult,
     BudgetResult,
@@ -64,7 +75,19 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 registry_client = RegistryClient(settings.agent_registry_url)
-a2a_client = A2AClient(timeout_seconds=settings.request_timeout_seconds)
+a2a_client = A2AClient(
+    timeout_seconds=settings.request_timeout_seconds,
+    retry_attempts=settings.max_retries,
+    retry_backoff_base_seconds=settings.retry_backoff_base_seconds,
+)
+# One circuit breaker per discovered agent id (§27/§35, Fase 8) — shared
+# across Agent Card fetches and A2A delegation, since both are calls to
+# the same downstream agent and a definitely-down agent shouldn't be
+# retried-into on either path.
+circuit_breakers = CircuitBreakerRegistry(
+    failure_threshold=settings.circuit_breaker_failure_threshold,
+    reset_timeout_seconds=settings.circuit_breaker_reset_timeout_seconds,
+)
 
 # Skill ids declared by each specialist's own Agent Card (see e.g.
 # flight-openai/app/a2a/agent_card.py, hotel-langgraph/src/a2a/agentCard.ts).
@@ -99,11 +122,19 @@ async def discover_agents() -> list[dict[str, Any]]:
 
 
 async def _fetch_agent_card(agent: dict[str, Any]) -> Any | None:
-    try:
-        return await a2a_client.get_agent_card(agent["url"])
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("failed to fetch agent card for %s: %s", agent.get("id"), exc)
+    agent_id = agent.get("id", "unknown")
+    breaker = circuit_breakers.get(agent_id)
+    if not breaker.allow_request():
+        logger.warning("circuit breaker OPEN for %s, skipping Agent Card fetch", agent_id)
         return None
+    try:
+        card = await a2a_client.get_agent_card(agent["url"])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("failed to fetch agent card for %s: %s", agent_id, exc)
+        breaker.record_failure()
+        return None
+    breaker.record_success()
+    return card
 
 
 async def _agents_by_skill(agents: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -131,13 +162,28 @@ async def _agents_by_skill(agents: list[dict[str, Any]]) -> dict[str, dict[str, 
 
 
 async def _delegate_to_agent(agent: dict[str, Any], text: str, context_id: str) -> dict[str, Any] | None:
-    span_name = f"a2a.{agent.get('id', 'unknown')}"
+    agent_id = agent.get("id", "unknown")
+    breaker = circuit_breakers.get(agent_id)
+    if not breaker.allow_request():
+        # §27/§35 (Fase 8): a specialist that has already failed
+        # `circuit_breaker_failure_threshold` times in a row is skipped
+        # outright — no network round-trip, no timeout to wait out —
+        # until the cooldown elapses. This degrades exactly like an
+        # unreachable agent (None -> UNAVAILABLE/UNKNOWN downstream via
+        # _parse_specialist_result), just without paying for the retry
+        # budget on every single request in between.
+        logger.warning("circuit breaker OPEN for %s, skipping delegation", agent_id)
+        return None
+    span_name = f"a2a.{agent_id}"
     with tracer.start_as_current_span(span_name):
         try:
-            return await a2a_client.send_text(agent["url"], text, context_id=context_id)
+            result = await a2a_client.send_text(agent["url"], text, context_id=context_id)
         except (A2AClientError, Exception) as exc:  # noqa: BLE001
-            logger.warning("delegation to %s failed: %s", agent.get("id"), exc)
+            logger.warning("delegation to %s failed: %s", agent_id, exc)
+            breaker.record_failure()
             return None
+    breaker.record_success()
+    return result
 
 
 # Minimal valid payload used for the foundation check: generic enough that
@@ -192,21 +238,33 @@ def _extract_text(message: dict[str, Any] | None) -> str | None:
         return None
 
 
-def _parse_specialist_result(agent_id: str, task: dict[str, Any] | None, model_cls: type) -> Any:
+def _parse_specialist_result(
+    agent_id: str,
+    task: dict[str, Any] | None,
+    model_cls: type,
+    *,
+    unavailable_status: str = "UNAVAILABLE",
+) -> Any:
     """Parses the Task returned by a specialist's A2A skill into the given
     result model. Never fabricates data (§31): any parsing failure or
-    missing task degrades to UNAVAILABLE, never a guess. Shared by all
-    four real specialists (Python and TypeScript alike — the wire format
-    is identical, per the A2A adapter contract).
+    missing task degrades to `unavailable_status`, never a guess. Shared
+    by all five real specialists (Python and TypeScript alike — the wire
+    format is identical, per the A2A adapter contract).
+
+    `unavailable_status` defaults to "UNAVAILABLE" (flight/hotel/activity/
+    enrichment, §35 CT-R01/CT-R05) but Budget passes "UNKNOWN" instead
+    (§35 CT-R06: "Budget falha -> PARTIAL, budget.status=UNKNOWN") — both
+    are honest ways of saying "no real result", the wording is just
+    domain-specific to what each specialist represents.
     """
     if task is None:
-        return model_cls(status="UNAVAILABLE", notes=f"{agent_id} unreachable")
+        return model_cls(status=unavailable_status, notes=f"{agent_id} unreachable")
 
     try:
         state = task["status"]["state"]
     except (KeyError, TypeError) as exc:
         logger.warning("malformed task from %s: %s", agent_id, exc)
-        return model_cls(status="UNAVAILABLE", notes=f"malformed {agent_id} task: {exc}")
+        return model_cls(status=unavailable_status, notes=f"malformed {agent_id} task: {exc}")
 
     if state in ("failed", "canceled"):
         # A terminal-but-unsuccessful task state is itself the specialist
@@ -216,7 +274,7 @@ def _parse_specialist_result(agent_id: str, task: dict[str, Any] | None, model_c
         # would happily try to json.loads() a failure explanation).
         reason = _extract_text(task.get("status", {}).get("message"))
         notes = f"{agent_id} task {state}" + (f": {reason}" if reason else "")
-        return model_cls(status="UNAVAILABLE", notes=notes)
+        return model_cls(status=unavailable_status, notes=notes)
 
     if state != "completed":
         # submitted/working/input-required: non-terminal. This Planner
@@ -225,7 +283,7 @@ def _parse_specialist_result(agent_id: str, task: dict[str, Any] | None, model_c
         # the specialist simply hadn't finished by the time it replied;
         # degrade explicitly rather than mis-parsing an in-progress
         # status as if it were the final result.
-        return model_cls(status="UNAVAILABLE", notes=f"{agent_id} task not completed (state={state})")
+        return model_cls(status=unavailable_status, notes=f"{agent_id} task not completed (state={state})")
 
     try:
         text = _extract_text(task["status"]["message"])
@@ -235,7 +293,7 @@ def _parse_specialist_result(agent_id: str, task: dict[str, Any] | None, model_c
         return model_cls.model_validate(raw)
     except Exception as exc:  # noqa: BLE001
         logger.warning("failed to parse %s response: %s", agent_id, exc)
-        return model_cls(status="UNAVAILABLE", notes=f"invalid {agent_id} response: {exc}")
+        return model_cls(status=unavailable_status, notes=f"invalid {agent_id} response: {exc}")
 
 
 def _nights_between(start_date: str, end_date: str) -> int:
@@ -256,11 +314,16 @@ async def _delegate_budget(
 ) -> BudgetResult:
     """Budget is delegated after (not alongside) flight/hotel/activity,
     since §5.5 requires their *results*, not the raw TravelRequest.
+
+    §35 CT-R06 ("Budget falha -> PARTIAL, budget.status=UNKNOWN"): unlike
+    the other three core specialists, Budget's own failure/unreachable
+    status is UNKNOWN, not UNAVAILABLE — see _parse_specialist_result's
+    unavailable_status param below.
     """
     budget_agent = skill_agents.get(_SKILL_BUDGET)
     if budget_agent is None:
         return BudgetResult(
-            status="UNAVAILABLE",
+            status="UNKNOWN",
             budget_status="UNKNOWN",
             limit=payload.budget,
             notes="no agent advertising the calculate_budget skill",
@@ -279,7 +342,7 @@ async def _delegate_budget(
         }
     )
     task = await _delegate_to_agent(budget_agent, budget_payload, request_id)
-    return _parse_specialist_result("budget-agent", task, BudgetResult)
+    return _parse_specialist_result("budget-agent", task, BudgetResult, unavailable_status="UNKNOWN")
 
 
 async def _delegate_enrichment(

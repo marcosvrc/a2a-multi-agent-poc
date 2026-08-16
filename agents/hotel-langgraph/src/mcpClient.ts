@@ -19,13 +19,17 @@ export interface RawHotelSearchResult {
   notes?: string;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
- * Calls the MCP Hotel Search tool over Streamable HTTP. Opens a fresh
- * client/transport per call and always closes it afterwards — the
- * underlying SSE stream otherwise keeps the Node event loop (and this
- * agent's HTTP request) hanging open indefinitely.
+ * One connect+callTool attempt. Opens a fresh client/transport (a failed
+ * connection/handshake can't be reused for a retry) and always closes it
+ * afterwards — the underlying SSE stream otherwise keeps the Node event
+ * loop (and this agent's HTTP request) hanging open indefinitely.
  */
-export async function searchHotels(
+async function _attempt(
   mcpUrl: string,
   args: { destination: string; start_date: string; end_date: string; guests: number },
   timeoutMs: number,
@@ -71,4 +75,38 @@ export async function searchHotels(
   } finally {
     await client.close().catch(() => undefined);
   }
+}
+
+/**
+ * Calls the MCP Hotel Search tool over Streamable HTTP.
+ *
+ * Fase 8 (PROJECT_SPEC.md §27 "Resiliência"): retries on any failure,
+ * with exponential backoff, up to `retryAttempts` extra tries —
+ * search_hotels is a pure read, safe to retry without the
+ * non-idempotent-call caveat that applies to A2A `message/send` (see
+ * planner-adk/app/a2a/client.py, the Python side of this same §27 rule).
+ */
+export async function searchHotels(
+  mcpUrl: string,
+  args: { destination: string; start_date: string; end_date: string; guests: number },
+  timeoutMs: number,
+  retryAttempts = 2,
+  retryBackoffBaseMs = 500,
+): Promise<RawHotelSearchResult> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retryAttempts; attempt++) {
+    try {
+      return await _attempt(mcpUrl, args, timeoutMs);
+    } catch (err) {
+      lastErr = err;
+      if (attempt >= retryAttempts) break;
+      const delay = retryBackoffBaseMs * 2 ** attempt;
+      // eslint-disable-next-line no-console
+      console.warn(
+        `MCP search_hotels failed (attempt ${attempt + 1}/${retryAttempts + 1}): ${(err as Error).message} — retrying in ${delay}ms`,
+      );
+      await sleep(delay);
+    }
+  }
+  throw lastErr;
 }

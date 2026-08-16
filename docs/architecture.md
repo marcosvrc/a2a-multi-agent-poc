@@ -1,4 +1,4 @@
-# Arquitetura — Estado atual (Fase 7)
+# Arquitetura — Estado atual (Fase 8)
 
 Ver `a2a-multi-agent-poc-PROJECT_SPEC.md` na raiz do repositório para a
 especificação completa. Este documento descreve apenas o que já foi
@@ -129,11 +129,47 @@ Componentes:
 ## Ainda não implementado
 
 - Segurança JWT/OAuth (Fase 9) — hoje `AUTH_MODE=dev`, sem token real.
-- Resiliência avançada (circuit breaker) — Fase 8. Timeout básico via
-  `httpx`/`fetch` já existe nos clientes A2A/Registry/MCP; degradação
-  por-dia do MCP Weather (CT-R03) já implementada no Activity Agent.
+- Chaos test real (derrubar/atrasar containers Docker de propósito) para
+  os cenários CT-R01..CT-R06 do §35 — cobertos hoje no nível de
+  unidade/integração do Planner (ver "Resiliência (Fase 8)" abaixo), não
+  como teste de infraestrutura de fato.
 - AWS Full (`AgentCore Runtime → Strands → Bedrock`, §5.6) — fase futura,
   fora do escopo desta milestone (§38 "AgentCore — fase futura").
+
+## Resiliência (Fase 8)
+
+§27/§35: retry com backoff exponencial + circuit breaker por agente no
+lado A2A (Planner → especialista) e retry com backoff exponencial no
+lado MCP (Agent → tool). Detalhes completos em
+`docs/adr/ADR-014-resilience-retry-circuit-breaker.md`; resumo:
+
+- **Retry A2A** (`agents/planner-adk/app/a2a/client.py`): tenta de novo
+  apenas falhas de transporte sem evidência de que a requisição chegou a
+  ser processada (timeout, conexão recusada, 5xx) — nunca em 4xx nem em
+  erro JSON-RPC de aplicação (§27: "não repetir chamadas não idempotentes
+  sem controle"). `AGENT_MAX_RETRIES` (já existia como campo, nunca lido
+  antes desta fase) e `AGENT_RETRY_BACKOFF_BASE_SECONDS` controlam o
+  comportamento.
+- **Circuit breaker por agente** (`agents/planner-adk/app/resilience.py`):
+  CLOSED → OPEN após N falhas consecutivas → HALF_OPEN após um cooldown
+  → CLOSED em sucesso / OPEN de novo em falha. Compartilhado entre busca
+  de Agent Card e delegação A2A para o mesmo agente — um agente já
+  sabidamente fora do ar deixa de pagar timeout completo em toda
+  requisição nova, até o cooldown expirar. `CIRCUIT_BREAKER_FAILURE_THRESHOLD`
+  e `CIRCUIT_BREAKER_RESET_TIMEOUT_SECONDS` controlam os limiares.
+- **Budget `status=UNKNOWN` em falha** (CT-R06): diferente de
+  flight/hotel/activity/enrichment, que reportam `UNAVAILABLE` quando o
+  especialista falha, Budget reporta `UNKNOWN` — já era o valor default
+  de `BudgetResult.status` para "nenhum agente registrado"; esta fase só
+  tornou consistente o caso "agente registrado mas falhou".
+- **Retry MCP** (`agents/{activity-beeai,budget-crewai,aws-strands}/app/mcp_client.py`,
+  `agents/flight-openai/app/mcp_client.py`, `agents/hotel-langgraph/src/mcpClient.ts`):
+  mesmo padrão de backoff exponencial, mas todas as tools MCP desta POC
+  (buscas e cálculos puros) são seguras para repetir sem a ressalva de
+  não-idempotência do lado A2A.
+- CT-R03 ("MCP Weather falha → Activity continua sem clima") já estava
+  coberto desde a Fase 4 e não muda de comportamento — o retry só atrasa
+  (via backoff) a confirmação de que o MCP realmente está indisponível.
 
 ## AWS Enrichment (Fase 7)
 
